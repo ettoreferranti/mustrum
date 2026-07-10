@@ -44,7 +44,7 @@ mustrum/
     models.py        # Source, Idea, IdeaVersion, Contact, Match, BibEntry, ...
     normalize.py     # title/DOI normalisation + title_hash (dedup keys)
     ports.py         # Protocol definitions (all ports)
-    verify.py        # ⏳ GroundingVerifier, CitationVerifier  ← rigour kernel
+    verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
     services/        # ⏳ ingest, summarise, match, relatedwork, audit
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
@@ -114,11 +114,17 @@ The anti-hallucination guarantees live in two small, heavily-tested classes:
 
 1. **GroundingVerifier** — takes model output that includes evidence quotes
    and the stored `SourceText`; verifies each quote occurs verbatim
-   (whitespace-normalised) in the text. Failure ⇒ the artefact is rejected
-   and reported; nothing partial is stored.
+   (whitespace-normalised, case- and punctuation-sensitive) in the text.
+   Zero usable quotes is itself a failure (`empty_evidence`) — claims without
+   evidence are rejected. Failure ⇒ the artefact is rejected and reported;
+   nothing partial is stored.
 2. **CitationVerifier** — takes generated text (related-work skeleton) and the
    set of valid citation keys from the DB; any `\cite{key}` / `[@key]` not in
-   the set ⇒ hard failure. Also used by the `audit` command on external drafts.
+   the set ⇒ hard failure. Also used by the `audit` command on external
+   drafts. Recognises LaTeX/natbib/biblatex commands (anything containing
+   "cite", incl. starred forms and optional args) and pandoc-Markdown
+   (`[@key]`, bare `@key`; e-mail addresses excluded). `extract_keys` returns
+   keys deduplicated in order of first appearance.
 
 Model output is treated as untrusted input everywhere. These modules have the
 strictest test bar in the project (see §7).

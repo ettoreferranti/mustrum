@@ -2,7 +2,8 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-10 (initial design, pre-implementation).
+> Last updated: 2026-07-10 (Phase 0 implemented: models, ports, SQLite
+> adapter, fake providers; services/CLI/graph not yet built).
 
 ## 1. Overview
 
@@ -33,35 +34,42 @@ citation is structurally impossible — generated artefacts reference sources
 only by database ID, rendering resolves IDs to stored BibTeX, and verifiers
 run *after* any model output and reject ungrounded content.
 
-## 2. Package layout (planned)
+## 2. Package layout
+
+Items marked ⏳ are planned (Phase 1+), everything else exists.
 
 ```
 mustrum/
   core/
-    models.py        # Source, Idea, IdeaVersion, Contact, Match, BibEntry, Tag
-    services/
-      ingest.py      # ingestion pipeline, dedup
-      summarise.py   # grounded summarisation workflow
-      match.py       # embedding matching, gap analysis
-      relatedwork.py # skeleton generation (Markdown/LaTeX)
-      audit.py       # citation audit of external drafts
-    verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
+    models.py        # Source, Idea, IdeaVersion, Contact, Match, BibEntry, ...
+    normalize.py     # title/DOI normalisation + title_hash (dedup keys)
     ports.py         # Protocol definitions (all ports)
+    verify.py        # ⏳ GroundingVerifier, CitationVerifier  ← rigour kernel
+    services/        # ⏳ ingest, summarise, match, relatedwork, audit
   adapters/
-    sqlite/          # StorageRepo impl, schema, migrations, FTS5
-    ollama.py        # LLMProvider + EmbeddingProvider via Ollama HTTP API
+    sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
-    arxiv.py         # MetadataFetcher for arXiv IDs
-    crossref.py      # MetadataFetcher for DOIs
-    pdf.py           # TextExtractor via PyMuPDF
-  cli/
-    main.py          # typer app: ingest, idea, match, bib, graph, audit, ...
-  graph/
-    export.py        # builds self-contained HTML (embedded Cytoscape.js + JSON)
+    ollama.py        # ⏳ LLMProvider + EmbeddingProvider via Ollama HTTP API
+    arxiv.py         # ⏳ MetadataFetcher for arXiv IDs
+    crossref.py      # ⏳ MetadataFetcher for DOIs
+    pdf.py           # ⏳ TextExtractor via PyMuPDF
+  cli/               # ⏳ typer app: ingest, idea, match, bib, graph, audit
+  graph/             # ⏳ self-contained HTML export (embedded Cytoscape.js)
 tests/
   unit/  integration/
 docs/
 ```
+
+Implementation notes (v1 schema, `adapters/sqlite/`):
+- datetimes ISO-8601 strings; list/dict fields JSON; vectors float64 blobs.
+- `source_texts` immutability (ADR-7) is enforced *in the database* by
+  BEFORE UPDATE/DELETE triggers that RAISE(ABORT), not just by convention.
+- One FTS5 table `search_index(entity, ref_id, body)` covers sources
+  (title+authors+notes+text+summary), ideas (title+versions), contacts;
+  re-indexed per entity on write. User queries are token-quoted so FTS5
+  syntax can't be injected.
+- Migrations: append-only list in `schema.py`, tracked via PRAGMA
+  user_version.
 
 ## 3. Domain model
 
@@ -138,7 +146,11 @@ strictest test bar in the project (see §7).
   deterministic.
 - **Mutation testing with mutmut** on `mustrum/core/`: overall mutation score
   target ≥ 80%; for `core/verify.py` every surviving mutant must be reviewed
-  and either killed or explicitly justified in the PR/commit.
+  and either killed or explicitly justified in the PR/commit. `core/ports.py`
+  is excluded (Protocol stubs have no behaviour to mutate).
+- Justified surviving mutants (keep this list current):
+  - `normalize.title_hash`: `"utf-8"` → `"UTF-8"` — Python codec lookup is
+    case-insensitive, mutant is semantically equivalent; unkillable.
 - mypy strict on `mustrum/core/`; ruff for lint + format.
 
 ## 8. Decisions

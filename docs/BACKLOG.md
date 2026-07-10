@@ -8,10 +8,10 @@ stories at the bottom of the relevant epic.
 
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E0-1 | Project scaffolding: package layout, pyproject (uv), pytest, ruff, mypy strict on core, mutmut config, CI-ready offline test suite | M | todo |
-| E0-2 | Domain models (`core/models.py`) + port Protocols (`core/ports.py`) | M | todo |
-| E0-3 | SQLite adapter: schema v1, migrations, FTS5, StorageRepo | M | todo |
-| E0-4 | Fake LLM/embedding providers for deterministic tests | M | todo |
+| E0-1 | Project scaffolding: package layout, pyproject (uv), pytest, ruff, mypy strict on core, mutmut config, CI-ready offline test suite | M | done |
+| E0-2 | Domain models (`core/models.py`) + port Protocols (`core/ports.py`) | M | done |
+| E0-3 | SQLite adapter: schema v1, migrations, FTS5, StorageRepo | M | done |
+| E0-4 | Fake LLM/embedding providers for deterministic tests | M | done |
 
 ## Phase 1 — MVP (ingest → match → cite)
 

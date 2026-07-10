@@ -50,3 +50,5 @@ strict = true
 [tool.mutmut]
 paths_to_mutate = ["mustrum/core/"]
 tests_dir = ["tests/"]
+also_copy = ["mustrum/__init__.py", "mustrum/adapters/"]
+do_not_mutate = ["mustrum/core/ports.py"]  # Protocol stubs: declarations, no behaviour

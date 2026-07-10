@@ -23,9 +23,7 @@ class TestNormalizeTitle:
 
 class TestTitleHash:
     def test_equal_for_formatting_variants(self):
-        assert title_hash("Attention is all you need.") == title_hash(
-            "ATTENTION IS ALL — YOU NEED"
-        )
+        assert title_hash("Attention is all you need.") == title_hash("ATTENTION IS ALL — YOU NEED")
 
     def test_differs_for_different_titles(self):
         assert title_hash("Paper One") != title_hash("Paper Two")

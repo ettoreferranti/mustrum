@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.mutmut-cache
+mutants/
+
+# Mustrum local data (never commit the user's library)
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store

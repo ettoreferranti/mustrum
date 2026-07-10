@@ -130,9 +130,10 @@ tags (FR-8), plain-file export for longevity (NFR-5).
 
 ## 7. Open questions
 
-- OQ-1 Which Ollama models to standardise on? Proposal: `nomic-embed-text`
-  for embeddings, a small instruct model (e.g. `llama3.1:8b` or `qwen2.5:7b`)
-  for summaries. Decide at implementation of the Ollama adapter.
+- ~~OQ-1 Which Ollama models to standardise on?~~ **Resolved 2026-07-10**
+  (see ADR-8): `nomic-embed-text` for embeddings, `qwen3:30b` (MoE) for
+  generation — the dev machine (M5 Pro, 48 GB) runs it comfortably. Model
+  names are config, not code.
 - OQ-2 Should contacts also be importable (vCard/CSV)? Deferred.
 - OQ-3 LaTeX bibliography style handling (natbib vs biblatex) for the
   related-work skeleton — start with plain `\cite{}` and revisit.

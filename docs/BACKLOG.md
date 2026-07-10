@@ -34,7 +34,7 @@ stories at the bottom of the relevant epic.
 ### E3 Model layer (Ollama)
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E3-1 | Ollama adapter: LLMProvider + EmbeddingProvider, model names in config; resolve OQ-1 | M | todo |
+| E3-1 | Ollama adapter: LLMProvider + EmbeddingProvider, model names in config (defaults per ADR-8: nomic-embed-text / qwen3:30b) | M | todo |
 | E3-2 | GroundingVerifier + CitationVerifier (`core/verify.py`) — 100% mutant review | M | todo |
 | E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | todo |
 

@@ -40,3 +40,15 @@ and must pass GroundingVerifier (evidence quotes verbatim in source) and
 CitationVerifier (only DB citation keys) before anything is stored or emitted.
 Verification failure rejects the artefact loudly — no partial saves, no silent
 repair.
+
+## ADR-8 — Default Ollama models: nomic-embed-text + qwen3:30b (2026-07-10, accepted)
+Resolves OQ-1. Embeddings: `nomic-embed-text` (274 MB, strong retrieval
+quality, cheap to re-embed the library). Generation: `qwen3:30b` — a
+mixture-of-experts model (~3B active parameters), so on the dev machine
+(MacBook M5 Pro, 48 GB unified memory) it delivers ~30B-class output quality
+at near-8B speed, using ~19 GB. A dense 70B (llama3.3) was rejected: its q4
+weights (~40 GB) leave no headroom on 48 GB and inference would be slow.
+`llama3.1:8b` remains the documented lightweight fallback for battery/speed —
+both names live in config only, so swapping is a one-line change and never
+touches code. Grounding verification (ADR-7) makes model choice a prose-quality
+concern, not a correctness one.

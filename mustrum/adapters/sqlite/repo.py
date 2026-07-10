@@ -114,6 +114,32 @@ class SqliteRepo:
         self._reindex_source(saved.id)  # type: ignore[arg-type]
         return saved
 
+    def update_source(self, source: Source) -> None:
+        """Update metadata of an existing source (dedup merge, FR-1.4)."""
+        if source.id is None:
+            raise ValueError("source has no id")
+        self.get_source(source.id)
+        self._conn.execute(
+            """UPDATE sources SET kind = ?, title = ?, authors = ?, year = ?, doi = ?,
+               arxiv_id = ?, title_hash = ?, provenance = ?, reading_status = ?, notes = ?
+               WHERE id = ?""",
+            (
+                source.kind.value,
+                source.title,
+                json.dumps(list(source.authors)),
+                source.year,
+                normalize_doi(source.doi) if source.doi else None,
+                source.arxiv_id,
+                title_hash(source.title),
+                json.dumps({f: o.value for f, o in source.provenance}),
+                source.reading_status.value,
+                source.notes,
+                source.id,
+            ),
+        )
+        self._conn.commit()
+        self._reindex_source(source.id)
+
     def _row_to_source(self, row: sqlite3.Row) -> Source:
         return Source(
             kind=SourceKind(row["kind"]),

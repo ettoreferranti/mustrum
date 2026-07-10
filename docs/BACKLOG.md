@@ -18,12 +18,12 @@ stories at the bottom of the relevant epic.
 ### E1 Ingestion
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E1-1 | PDF ingestion via PyMuPDF; immutable SourceText | M | todo |
-| E1-2 | arXiv ingestion: fetch metadata + BibTeX by ID | M | todo |
-| E1-3 | DOI ingestion via Crossref | M | todo |
-| E1-4 | Plain text / Markdown ingestion | M | todo |
-| E1-5 | Deduplication (DOI / arXiv ID / title-hash) with merge-or-skip prompt | M | todo |
-| E1-6 | Provenance tracking per metadata field | S | todo |
+| E1-1 | PDF ingestion via PyMuPDF; immutable SourceText | M | done |
+| E1-2 | arXiv ingestion: fetch metadata + BibTeX by ID | M | done |
+| E1-3 | DOI ingestion via Crossref | M | done |
+| E1-4 | Plain text / Markdown ingestion | M | done |
+| E1-5 | Deduplication (DOI / arXiv ID / title-hash) with merge-or-skip prompt | M | done |
+| E1-6 | Provenance tracking per metadata field | S | done |
 
 ### E2 Ideas
 | ID | Story | Prio | Status |

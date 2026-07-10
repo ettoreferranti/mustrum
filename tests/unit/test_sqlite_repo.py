@@ -450,3 +450,34 @@ class TestMigrations:
         r2 = SqliteRepo(db)
         assert r2.get_source(s.id) == s
         r2.close()
+
+
+class TestUpdateSource:
+    def test_updates_metadata(self, repo):
+        saved = repo.add_source(make_source(doi=None, arxiv_id=None))
+        import dataclasses
+
+        updated = dataclasses.replace(saved, year=2020, doi="10.1/new")
+        repo.update_source(updated)
+        got = repo.get_source(saved.id)
+        assert got.year == 2020
+        assert got.doi == "10.1/new"
+
+    def test_update_without_id_raises(self, repo):
+        with pytest.raises(ValueError):
+            repo.update_source(make_source())
+
+    def test_update_missing_source_raises(self, repo):
+        import dataclasses
+
+        ghost = dataclasses.replace(make_source(), id=999)
+        with pytest.raises(KeyError):
+            repo.update_source(ghost)
+
+    def test_update_reindexes_search(self, repo):
+        import dataclasses
+
+        saved = repo.add_source(make_source(doi=None, arxiv_id=None))
+        repo.update_source(dataclasses.replace(saved, title="Zephyr Quantum Widgets"))
+        assert repo.search("zephyr")[0].ref_id == saved.id
+        assert repo.search("attention") == []

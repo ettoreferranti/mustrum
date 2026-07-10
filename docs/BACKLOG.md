@@ -28,23 +28,23 @@ stories at the bottom of the relevant epic.
 ### E2 Ideas
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E2-1 | Create/list/show ideas; append-only versioning | M | todo |
-| E2-2 | Idea↔idea links (builds-on / contrasts / related) | S | todo |
+| E2-1 | Create/list/show ideas; append-only versioning | M | done |
+| E2-2 | Idea↔idea links (builds-on / contrasts / related) | S | done |
 
 ### E3 Model layer (Ollama)
 | ID | Story | Prio | Status |
 |---|---|---|---|
 | E3-1 | Ollama adapter: LLMProvider + EmbeddingProvider, model names in config (defaults per ADR-8: nomic-embed-text / qwen3:30b) | M | done |
 | E3-2 | GroundingVerifier + CitationVerifier (`core/verify.py`) — 100% mutant review | M | done |
-| E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | todo |
+| E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | done |
 
 ### E4 Matching
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E4-1 | Chunked source embeddings + idea embeddings; cosine ranking, threshold | M | todo |
-| E4-2 | Suggest/confirm/reject workflow; manual match creation | M | todo |
+| E4-1 | Chunked source embeddings + idea embeddings; cosine ranking, threshold | M | done |
+| E4-2 | Suggest/confirm/reject workflow; manual match creation | M | done |
 | E4-3 | Grounded match rationale (quotes, verified) | S | todo |
-| E4-4 | Gap analysis report (unsupported ideas, orphan sources) | S | todo |
+| E4-4 | Gap analysis report (unsupported ideas, orphan sources) | S | done |
 
 ### E5 Bibliography & writing support
 | ID | Story | Prio | Status |

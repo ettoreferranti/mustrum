@@ -1,0 +1,110 @@
+"""Offline tests for the Ollama adapters using httpx.MockTransport."""
+
+import json
+
+import httpx
+import pytest
+
+from mustrum.adapters.ollama import OllamaEmbedder, OllamaError, OllamaLLM
+
+
+def mock_client(handler) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+class TestOllamaLLM:
+    def test_sends_model_prompt_system_and_disables_thinking(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "hello"})
+
+        llm = OllamaLLM("qwen3:30b", client=mock_client(handler))
+        assert llm.generate("the prompt", system="the system") == "hello"
+        assert seen["url"] == "http://localhost:11434/api/generate"
+        assert seen["payload"]["model"] == "qwen3:30b"
+        assert seen["payload"]["prompt"] == "the prompt"
+        assert seen["payload"]["system"] == "the system"
+        assert seen["payload"]["stream"] is False
+        assert seen["payload"]["think"] is False
+
+    def test_system_omitted_when_not_given(self):
+        seen = {}
+
+        def handler(request):
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok"})
+
+        OllamaLLM("m", client=mock_client(handler)).generate("p")
+        assert "system" not in seen["payload"]
+
+    def test_strips_think_block(self):
+        def handler(request):
+            return httpx.Response(
+                200, json={"response": "<think>step 1... step 2...</think>The answer."}
+            )
+
+        assert OllamaLLM("m", client=mock_client(handler)).generate("p") == "The answer."
+
+    def test_http_error_raises_ollama_error(self):
+        def handler(request):
+            return httpx.Response(500, text="boom")
+
+        with pytest.raises(OllamaError, match="request failed"):
+            OllamaLLM("m", client=mock_client(handler)).generate("p")
+
+    def test_malformed_response_raises(self):
+        def handler(request):
+            return httpx.Response(200, json={"unexpected": True})
+
+        with pytest.raises(OllamaError, match="malformed"):
+            OllamaLLM("m", client=mock_client(handler)).generate("p")
+
+    def test_custom_base_url(self):
+        seen = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            return httpx.Response(200, json={"response": "x"})
+
+        OllamaLLM("m", base_url="http://other:9999/", client=mock_client(handler)).generate("p")
+        assert seen["url"] == "http://other:9999/api/generate"
+
+    def test_model_name(self):
+        assert OllamaLLM("qwen3:30b").model_name == "qwen3:30b"
+
+
+class TestOllamaEmbedder:
+    def test_embeds_batch(self):
+        def handler(request):
+            payload = json.loads(request.content)
+            assert payload == {"model": "nomic-embed-text", "input": ["a", "b"]}
+            return httpx.Response(200, json={"embeddings": [[1.0, 2.0], [3.0, 4.0]]})
+
+        embedder = OllamaEmbedder("nomic-embed-text", client=mock_client(handler))
+        assert embedder.embed(["a", "b"]) == [(1.0, 2.0), (3.0, 4.0)]
+
+    def test_empty_input_short_circuits(self):
+        def handler(request):
+            raise AssertionError("no request expected")
+
+        assert OllamaEmbedder("m", client=mock_client(handler)).embed([]) == []
+
+    def test_count_mismatch_raises(self):
+        def handler(request):
+            return httpx.Response(200, json={"embeddings": [[1.0]]})
+
+        with pytest.raises(OllamaError, match="malformed"):
+            OllamaEmbedder("m", client=mock_client(handler)).embed(["a", "b"])
+
+    def test_http_error_raises(self):
+        def handler(request):
+            return httpx.Response(404, text="no model")
+
+        with pytest.raises(OllamaError):
+            OllamaEmbedder("m", client=mock_client(handler)).embed(["a"])
+
+    def test_model_name(self):
+        assert OllamaEmbedder("nomic-embed-text").model_name == "nomic-embed-text"

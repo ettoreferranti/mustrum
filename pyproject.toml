@@ -6,7 +6,11 @@ readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Ettore Ferranti", email = "ettore@ettoreferranti.ch" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+    "pymupdf>=1.28.0",
+    "typer>=0.26.8",
+]
 
 [dependency-groups]
 dev = [

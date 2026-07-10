@@ -49,10 +49,10 @@ stories at the bottom of the relevant epic.
 ### E5 Bibliography & writing support
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E5-1 | BibEntry storage: fetched raw `.bib` byte-exact; derived entries for manual sources; unique citation keys | M | todo |
-| E5-2 | `.bib` export (library / per idea) | M | todo |
-| E5-3 | Related-work skeleton (Markdown + LaTeX) from confirmed matches, citation-verified | M | todo |
-| E5-4 | Citation audit of external drafts (`.tex`/`.md`) against the library | S | todo |
+| E5-1 | BibEntry storage: fetched raw `.bib` byte-exact; derived entries for manual sources; unique citation keys | M | done |
+| E5-2 | `.bib` export (library / per idea) | M | done |
+| E5-3 | Related-work skeleton (Markdown + LaTeX) from confirmed matches, citation-verified | M | done |
+| E5-4 | Citation audit of external drafts (`.tex`/`.md`) against the library | S | done |
 
 ### E6 Graph
 | ID | Story | Prio | Status |
@@ -70,8 +70,8 @@ stories at the bottom of the relevant epic.
 ### E8 Search & organisation
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E8-1 | Full-text search (FTS5) across sources/ideas/summaries/contacts | M | todo |
-| E8-2 | Tags + reading status + per-source notes | S | todo |
+| E8-1 | Full-text search (FTS5) across sources/ideas/summaries/contacts | M | done |
+| E8-2 | Tags + reading status + per-source notes | S | done |
 
 ## Phase 2 — Longevity & polish
 

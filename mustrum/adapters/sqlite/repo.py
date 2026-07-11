@@ -274,6 +274,14 @@ class SqliteRepo:
             raise KeyError(f"no idea with id {idea_id}")
         return Idea(title=row["title"], created_at=_parse_dt(row["created_at"]), id=row["id"])
 
+    def find_idea_by_title(self, title: str) -> Idea | None:
+        row = self._conn.execute(
+            "SELECT * FROM ideas WHERE title = ? ORDER BY id LIMIT 1", (title,)
+        ).fetchone()
+        if row is None:
+            return None
+        return Idea(title=row["title"], created_at=_parse_dt(row["created_at"]), id=row["id"])
+
     def list_ideas(self) -> list[Idea]:
         rows = self._conn.execute("SELECT * FROM ideas ORDER BY id").fetchall()
         return [

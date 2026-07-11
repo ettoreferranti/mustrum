@@ -30,6 +30,7 @@ uv run mustrum summarise 1                # grounded, verified summary
 
 # ideas and matching
 uv run mustrum idea new "My idea" "one-paragraph description"
+uv run mustrum idea import ideas.md      # bulk: each '# Heading' + body = one idea
 uv run mustrum match suggest 1            # ranked candidate sources
 uv run mustrum match confirm 3            # your judgement is final
 uv run mustrum gaps                       # unsupported ideas, orphan sources

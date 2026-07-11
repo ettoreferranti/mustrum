@@ -143,3 +143,26 @@ class TestGraphAndContacts:
     def test_contact_link_requires_exactly_one_target(self):
         invoke("contact", "add", "X")
         invoke("contact", "link", "1", "--why", "w", expect_exit=1)
+
+
+class TestIdeaImport:
+    def test_import_creates_then_skips_then_revises(self, tmp_path):
+        f = tmp_path / "ideas.md"
+        f.write_text("# Alpha\nfirst text\n\n# Beta\nsecond text")
+        out = invoke("idea", "import", str(f))
+        assert "created [1] Alpha" in out and "created [2] Beta" in out
+        out = invoke("idea", "import", str(f))
+        assert "skipped [1] Alpha" in out
+        f.write_text("# Alpha\nrewritten text\n\n# Beta\nsecond text")
+        out = invoke("idea", "import", str(f), "--on-existing", "revise")
+        assert "revised [1] Alpha" in out and "skipped [2] Beta" in out
+        assert "rewritten text" in invoke("idea", "show", "1")
+
+    def test_import_invalid_format_fails(self, tmp_path):
+        f = tmp_path / "bad.md"
+        f.write_text("no heading here")
+        result = runner.invoke(app, ["idea", "import", str(f)])
+        assert result.exit_code == 1
+
+    def test_import_missing_file_fails(self):
+        invoke("idea", "import", "/nonexistent/ideas.md", expect_exit=1)

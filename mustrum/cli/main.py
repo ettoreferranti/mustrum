@@ -29,7 +29,7 @@ from mustrum.core.models import (
 )
 from mustrum.core.ports import EmbeddingProvider, LLMProvider, MetadataFetcher
 from mustrum.core.services.audit import AuditService
-from mustrum.core.services.ideas import IdeaService
+from mustrum.core.services.ideas import IdeaFileError, IdeaService
 from mustrum.core.services.ingest import DuplicateSourceError, IngestService
 from mustrum.core.services.match import MatchService
 from mustrum.core.services.relatedwork import RelatedWorkService
@@ -248,6 +248,32 @@ def idea_new(title: str, text: str) -> None:
     ctx = _context()
     idea = IdeaService(ctx.repo, ctx.embedder).create(title, text)
     typer.echo(f"created idea [{idea.id}] {idea.title}")
+
+
+@idea_app.command("import")
+def idea_import(
+    path: Path,
+    on_existing: Annotated[
+        str, typer.Option("--on-existing", help="skip | revise | create")
+    ] = "skip",
+) -> None:
+    """Bulk-import ideas from a Markdown file: each '# Heading' starts a new
+    idea (heading = title, body until the next heading = idea text)."""
+    if not path.is_file():
+        _fail(f"no such file: {path}")
+    if on_existing not in ("skip", "revise", "create"):
+        _fail("--on-existing must be skip, revise, or create")
+    ctx = _context()
+    try:
+        outcomes = IdeaService(ctx.repo, ctx.embedder).import_ideas(
+            path.read_text(encoding="utf-8"),
+            on_existing,  # type: ignore[arg-type]
+        )
+    except IdeaFileError as exc:
+        _fail(f"{path}: {exc}")
+        return
+    for outcome in outcomes:
+        typer.echo(f"{outcome.action} [{outcome.idea_id}] {outcome.title}")
 
 
 @idea_app.command("revise")

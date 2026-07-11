@@ -30,6 +30,7 @@ stories at the bottom of the relevant epic.
 |---|---|---|---|
 | E2-1 | Create/list/show ideas; append-only versioning | M | done |
 | E2-2 | Idea↔idea links (builds-on / contrasts / related) | S | done |
+| E2-3 | Bulk idea import from Markdown file (`# title` + body per idea; idempotent, --on-existing skip/revise/create) | S | done |
 
 ### E3 Model layer (Ollama)
 | ID | Story | Prio | Status |

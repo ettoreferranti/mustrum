@@ -481,3 +481,19 @@ class TestUpdateSource:
         repo.update_source(dataclasses.replace(saved, title="Zephyr Quantum Widgets"))
         assert repo.search("zephyr")[0].ref_id == saved.id
         assert repo.search("attention") == []
+
+
+class TestFindIdeaByTitle:
+    def test_finds_exact_title(self, repo):
+        idea = repo.add_idea(Idea(title="Grounded RAG"))
+        assert repo.find_idea_by_title("Grounded RAG") == idea
+
+    def test_title_is_case_sensitive_and_missing_returns_none(self, repo):
+        repo.add_idea(Idea(title="Grounded RAG"))
+        assert repo.find_idea_by_title("grounded rag") is None
+        assert repo.find_idea_by_title("nope") is None
+
+    def test_duplicate_titles_return_oldest(self, repo):
+        first = repo.add_idea(Idea(title="Same"))
+        repo.add_idea(Idea(title="Same"))
+        assert repo.find_idea_by_title("Same") == first

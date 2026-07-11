@@ -187,3 +187,69 @@ class TestParserEdges:
         SummariseService(repo, llm).summarise(sid)
         prompt, _ = llm.calls[0]
         assert "ZZZMARKER" not in prompt  # beyond the 16000-char default excerpt
+
+
+class TestParserRobustness:
+    """Failure modes observed with real qwen3 output on real papers."""
+
+    def test_literal_newlines_inside_json_strings(self, repo, source_id):
+        raw = '{"summary": "Line one\nline two.", "quotes": ["We propose the Transformer"]}'
+        service = SummariseService(repo, FakeLLMProvider([raw]))
+        assert service.summarise(source_id).text == "Line one\nline two."
+
+    def test_latex_backslashes_inside_json_strings(self, repo, source_id):
+        raw = (
+            '{"summary": "Uses \\alpha-scaled attention and \\cite-style refs.", '
+            '"quotes": ["We propose the Transformer"]}'
+        )
+        service = SummariseService(repo, FakeLLMProvider([raw]))
+        assert "attention" in service.summarise(source_id).text
+
+    def test_fenced_json_with_prose_around_it(self, repo, source_id):
+        raw = "Here is the JSON you asked for:\n```json\n" + good_reply() + "\n```\nHope it helps!"
+        service = SummariseService(repo, FakeLLMProvider([raw]))
+        assert service.summarise(source_id).verified is True
+
+    def test_valid_escapes_still_work(self, repo, source_id):
+        raw = '{"summary": "Quoted \\"exactly\\".", "quotes": ["We propose the Transformer"]}'
+        service = SummariseService(repo, FakeLLMProvider([raw]))
+        assert service.summarise(source_id).text == 'Quoted "exactly".'
+
+
+class TestRetryFeedback:
+    def test_missing_quotes_are_reported_back_to_model(self, repo, source_id):
+        bad = json.dumps({"summary": "s", "quotes": ["a fabricated span"]})
+        llm = FakeLLMProvider([bad, good_reply()])
+        SummariseService(repo, llm, attempts=2).summarise(source_id)
+        second_prompt, _ = llm.calls[1]
+        assert "a fabricated span" in second_prompt
+        assert "EXACTLY" in second_prompt
+
+    def test_parse_failure_feedback_asks_for_pure_json(self, repo, source_id):
+        llm = FakeLLMProvider(["not json { broken", good_reply()])
+        SummariseService(repo, llm, attempts=2).summarise(source_id)
+        second_prompt, _ = llm.calls[1]
+        assert "could not be parsed" in second_prompt
+
+    def test_empty_quotes_feedback(self, repo, source_id):
+        bad = json.dumps({"summary": "s", "quotes": []})
+        llm = FakeLLMProvider([bad, good_reply()])
+        SummariseService(repo, llm, attempts=2).summarise(source_id)
+        second_prompt, _ = llm.calls[1]
+        assert "no usable quotes" in second_prompt
+
+    def test_first_prompt_carries_no_feedback(self, repo, source_id):
+        llm = FakeLLMProvider([good_reply()])
+        SummariseService(repo, llm).summarise(source_id)
+        first_prompt, _ = llm.calls[0]
+        assert "previous reply" not in first_prompt
+
+    def test_unparsable_failure_includes_raw_snippet(self, repo, source_id):
+        service = SummariseService(repo, FakeLLMProvider(["gibberish output"]), attempts=1)
+        with pytest.raises(GroundingFailure, match=r"raw reply started with.*gibberish"):
+            service.summarise(source_id)
+        with pytest.raises(GroundingFailure) as exc:
+            SummariseService(repo, FakeLLMProvider(["more gibberish"]), attempts=1).summarise(
+                source_id
+            )
+        assert exc.value.raw_output == "more gibberish"

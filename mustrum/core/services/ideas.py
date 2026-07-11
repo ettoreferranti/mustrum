@@ -127,17 +127,25 @@ class IdeaService:
     def _add_version(self, idea_id: int, text: str) -> IdeaVersion:
         version = self._repo.add_idea_version(IdeaVersion(idea_id=idea_id, text=text))
         idea = self._repo.get_idea(idea_id)
-        (vector,) = self._embedder.embed([f"{idea.title}\n\n{text}"])
-        # the idea's embedding always reflects its latest version
-        self._repo.store_embeddings(
-            [
-                Embedding(
-                    entity=EntityKind.IDEA,
-                    ref_id=idea_id,
-                    chunk_index=0,
-                    model=self._embedder.model_name,
-                    vector=vector,
-                )
-            ]
-        )
+        embed_idea(self._repo, self._embedder, idea_id, idea.title, text)
         return version
+
+
+def embed_idea(
+    repo: StorageRepo, embedder: EmbeddingProvider, idea_id: int, title: str, text: str
+) -> None:
+    """Embed an idea from its title + latest version text. Single definition
+    so idea edits and backup restore embed identically; the idea's embedding
+    always reflects its latest version."""
+    (vector,) = embedder.embed([f"{title}\n\n{text}"])
+    repo.store_embeddings(
+        [
+            Embedding(
+                entity=EntityKind.IDEA,
+                ref_id=idea_id,
+                chunk_index=0,
+                model=embedder.model_name,
+                vector=vector,
+            )
+        ]
+    )

@@ -82,8 +82,7 @@ class TestExplain:
         with pytest.raises(
             RationaleFailure,
             match=(
-                f"match {match.id} failed grounding after 1 attempts: "
-                "quotes not found in source"
+                f"match {match.id} failed grounding after 1 attempts: quotes not found in source"
             ),
         ) as exc:
             service.explain(match.id)

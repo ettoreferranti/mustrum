@@ -83,7 +83,7 @@ stories at the bottom of the relevant epic.
 
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E9-1 | Plain-file export/import (JSON + Markdown + .bib) for git-versionable backup | S | todo |
+| E9-1 | Plain-file export/import (JSON + Markdown + .bib) for git-versionable backup: `export` / `restore` | S | done |
 | E9-2 | Idea brainstorming mode (explicitly-invoked creative output, clearly labelled, never mixed with citation output) | S | todo |
 | E9-3 | Watch-folder auto-ingest for PDFs | C | todo |
 | E9-4 | Zotero import | C | todo |

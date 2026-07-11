@@ -110,6 +110,8 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 | `mustrum contact link <id> --idea <id>\|--source <id> --why "..."` | Attach contacts with the reason |
 | `mustrum contact list` | Browse contacts |
 | `mustrum config` | Show effective configuration (`--init` writes a template) |
+| `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
+| `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |
 
 The typical loop: ingest → summarise → capture ideas → match suggest/confirm
 → related-work + bib when writing → audit before submitting → graph to see

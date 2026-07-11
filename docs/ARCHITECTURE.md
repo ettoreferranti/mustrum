@@ -46,7 +46,8 @@ mustrum/
     ports.py         # Protocol definitions (all ports)
     verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
     services/        # ingest, summarise, match, rationale, relatedwork,
-                     #   audit, chunk, grounded (shared generate→verify loop)
+                     #   audit, chunk, backup (plain-file export/restore),
+                     #   grounded (shared generate→verify loop)
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
@@ -155,6 +156,11 @@ strictest test bar in the project (see §7).
   may-not-add-sources rule.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
+- **Backup (NFR-5):** `export` walks the repo into a plain-file bundle
+  (canonical JSON + verbatim texts + byte-exact .bib + generated Markdown
+  views); `restore` rebuilds an empty DB from it, remapping ids and
+  recomputing embeddings. Invariant: export → restore → export is
+  byte-identical.
 
 ## 7. Testing strategy
 

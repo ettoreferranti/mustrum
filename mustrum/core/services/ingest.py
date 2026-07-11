@@ -30,6 +30,27 @@ from mustrum.core.services.chunk import chunk_text
 OnDuplicate = Literal["fail", "skip", "merge"]
 
 
+def embed_source_text(
+    repo: StorageRepo, embedder: EmbeddingProvider, source_id: int, text: str
+) -> None:
+    """Chunk + embed a source's text. Single definition so ingest, text
+    upgrades, and backup restore all embed identically."""
+    chunks = chunk_text(text)
+    vectors = embedder.embed(chunks)
+    repo.store_embeddings(
+        [
+            Embedding(
+                entity=EntityKind.SOURCE,
+                ref_id=source_id,
+                chunk_index=i,
+                model=embedder.model_name,
+                vector=vector,
+            )
+            for i, vector in enumerate(vectors)
+        ]
+    )
+
+
 class DuplicateSourceError(Exception):
     def __init__(self, existing: Source, matched_on: str) -> None:
         super().__init__(
@@ -154,20 +175,7 @@ class IngestService:
         )
         self._repo.delete_summary(source_id)
         self._repo.delete_embeddings(EntityKind.SOURCE, source_id)
-        chunks = chunk_text(text)
-        vectors = self._embedder.embed(chunks)
-        self._repo.store_embeddings(
-            [
-                Embedding(
-                    entity=EntityKind.SOURCE,
-                    ref_id=source_id,
-                    chunk_index=i,
-                    model=self._embedder.model_name,
-                    vector=vector,
-                )
-                for i, vector in enumerate(vectors)
-            ]
-        )
+        embed_source_text(self._repo, self._embedder, source_id, text)
 
     # -- internals -----------------------------------------------------------
 
@@ -231,20 +239,7 @@ class IngestService:
         self._repo.add_source_text(
             SourceText(source_id=source.id, text=text, extraction_method=extraction_method)
         )
-        chunks = chunk_text(text)
-        vectors = self._embedder.embed(chunks)
-        self._repo.store_embeddings(
-            [
-                Embedding(
-                    entity=EntityKind.SOURCE,
-                    ref_id=source.id,
-                    chunk_index=i,
-                    model=self._embedder.model_name,
-                    vector=vector,
-                )
-                for i, vector in enumerate(vectors)
-            ]
-        )
+        embed_source_text(self._repo, self._embedder, source.id, text)
 
     def _attach_fetched_bib(self, source: Source, raw_bibtex: str) -> None:
         assert source.id is not None

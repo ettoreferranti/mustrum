@@ -718,6 +718,53 @@ def graph(
         webbrowser.open(out.resolve().as_uri())
 
 
+@app.command("export")
+def export_cmd(
+    directory: Path,
+    force: Annotated[
+        bool, typer.Option("--force", help="Write into a non-empty directory.")
+    ] = False,
+) -> None:
+    """Export the whole library as plain files (JSON + texts + .bib +
+    Markdown views) — git-versionable, tool-independent backup."""
+    from mustrum.core.services.backup import BackupService
+
+    if directory.exists() and any(directory.iterdir()) and not force:
+        _fail(f"{directory} is not empty — use --force to write into it")
+    ctx = _context()
+    bundle = BackupService(ctx.repo, ctx.embedder).export_data()
+    for relative, content in bundle.items():
+        target = directory / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    typer.echo(f"exported {len(bundle)} files to {directory}")
+
+
+@app.command("restore")
+def restore_cmd(directory: Path) -> None:
+    """Restore an export into an EMPTY database (set MUSTRUM_DB or db_path
+    first). Embeddings are recomputed, so Ollama must be running."""
+    from mustrum.core.services.backup import BackupError, BackupService
+
+    if not directory.is_dir():
+        _fail(f"no such directory: {directory}")
+    bundle = {
+        str(path.relative_to(directory)): path.read_text(encoding="utf-8")
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+    ctx = _context()
+    try:
+        counts = BackupService(ctx.repo, ctx.embedder).import_data(bundle)
+    except BackupError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(
+        f"restored {counts['sources']} sources, {counts['ideas']} ideas, "
+        f"{counts['matches']} matches, {counts['contacts']} contacts"
+    )
+
+
 _CONFIG_TEMPLATE = """\
 # Mustrum configuration — local to this machine, never part of any repo.
 

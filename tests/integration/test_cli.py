@@ -358,3 +358,40 @@ class TestMatchExplain:
     def test_explain_missing_match(self):
         invoke("contact", "add", "pad")
         invoke("match", "explain", "9", expect_exit=1)
+
+
+class TestExportRestore:
+    def test_export_restore_cycle(self, tmp_path, note, monkeypatch):
+        invoke("ingest", "file", str(note), "--title", "Graph networks", "--year", "2021")
+        invoke("idea", "new", "molecular ML", "graph networks molecule prediction")
+        invoke("match", "suggest", "1", "--threshold", "0.05")
+        invoke("match", "confirm", "1")
+        export_dir = tmp_path / "backup"
+        out = invoke("export", str(export_dir))
+        assert "exported" in out
+        assert (export_dir / "manifest.json").is_file()
+        assert (export_dir / "LIBRARY.md").is_file()
+        # restore into a fresh database
+        monkeypatch.setenv("MUSTRUM_DB", str(tmp_path / "restored.db"))
+        out = invoke("restore", str(export_dir))
+        assert "restored 1 sources, 1 ideas, 1 matches, 0 contacts" in out
+        assert "Graph networks (2021)" in invoke("source", "show", "1")
+        assert "confirmed: [1] Graph networks" in invoke("idea", "show", "1")
+        assert "source [1]" in invoke("search", "molecular")
+
+    def test_restore_into_non_empty_db_fails(self, tmp_path, note):
+        invoke("ingest", "file", str(note), "--title", "T")
+        export_dir = tmp_path / "backup"
+        invoke("export", str(export_dir))
+        invoke("restore", str(export_dir), expect_exit=1)
+
+    def test_export_refuses_non_empty_dir_without_force(self, tmp_path, note):
+        invoke("ingest", "file", str(note), "--title", "T")
+        target = tmp_path / "occupied"
+        target.mkdir()
+        (target / "existing.txt").write_text("data")
+        invoke("export", str(target), expect_exit=1)
+        invoke("export", str(target), "--force")
+
+    def test_restore_missing_directory(self):
+        invoke("restore", "/nonexistent/backup", expect_exit=1)

@@ -24,6 +24,7 @@ stories at the bottom of the relevant epic.
 | E1-4 | Plain text / Markdown ingestion | M | done |
 | E1-5 | Deduplication (DOI / arXiv ID / title-hash) with merge-or-skip prompt | M | done |
 | E1-6 | Provenance tracking per metadata field | S | done |
+| E1-7 | Batch folder ingest (`ingest folder DIR [-r]`): all PDFs, per-file errors don't abort, idempotent re-runs | S | done |
 
 ### E2 Ideas
 | ID | Story | Prio | Status |

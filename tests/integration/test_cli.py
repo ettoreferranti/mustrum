@@ -166,3 +166,56 @@ class TestIdeaImport:
 
     def test_import_missing_file_fails(self):
         invoke("idea", "import", "/nonexistent/ideas.md", expect_exit=1)
+
+
+def make_pdf(path, text):
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
+
+
+class TestIngestFolder:
+    def test_batch_ingest_and_rerun_skips(self, tmp_path):
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        make_pdf(folder / "attention-survey.pdf", "a survey of attention mechanisms")
+        make_pdf(folder / "gnn-molecules.pdf", "graph networks for molecules")
+        (folder / "notes.txt").write_text("not a pdf, must be ignored")
+        out = invoke("ingest", "folder", str(folder))
+        assert "ingested [1] attention-survey" in out
+        assert "ingested [2] gnn-molecules" in out
+        assert "2 ingested, 0 skipped, 0 failed" in out
+        assert "notes" not in out
+        # re-running is idempotent
+        out = invoke("ingest", "folder", str(folder))
+        assert "0 ingested, 2 skipped, 0 failed" in out
+
+    def test_recursive_flag(self, tmp_path):
+        folder = tmp_path / "papers"
+        (folder / "sub").mkdir(parents=True)
+        make_pdf(folder / "sub" / "deep.pdf", "nested paper text")
+        out = invoke("ingest", "folder", str(folder))
+        assert "no PDFs found" in out  # non-recursive misses the subfolder
+        out = invoke("ingest", "folder", str(folder), "--recursive")
+        assert "ingested [1] deep" in out
+
+    def test_corrupt_pdf_does_not_abort_batch(self, tmp_path):
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        (folder / "broken.pdf").write_bytes(b"this is not a real pdf")
+        make_pdf(folder / "good.pdf", "valid content")
+        out = invoke("ingest", "folder", str(folder), expect_exit=1)
+        assert "failed: broken.pdf" in out or "1 failed" in out
+        assert "ingested" in out and "good" in out
+
+    def test_missing_directory(self):
+        invoke("ingest", "folder", "/nonexistent/dir", expect_exit=1)
+
+    def test_empty_directory(self, tmp_path):
+        folder = tmp_path / "empty"
+        folder.mkdir()
+        assert "no PDFs found" in invoke("ingest", "folder", str(folder))

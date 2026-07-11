@@ -121,6 +121,54 @@ def ingest_file(
     _print_source(result.source)
 
 
+@ingest_app.command("folder")
+def ingest_folder(
+    directory: Path,
+    recursive: Annotated[bool, typer.Option("--recursive", "-r")] = False,
+    kind: SourceKind = SourceKind.PAPER,
+    on_duplicate: DupOption = "skip",
+) -> None:
+    """Ingest every PDF in a folder (title = file name). Already-known papers
+    are skipped by default, so re-running on the same folder is safe."""
+    if not directory.is_dir():
+        _fail(f"no such directory: {directory}")
+    pattern = "**/*.pdf" if recursive else "*.pdf"
+    pdfs = sorted(p for p in directory.glob(pattern) if p.is_file())
+    if not pdfs:
+        typer.echo(f"no PDFs found in {directory}")
+        return
+    ctx = _context()
+    service = IngestService(ctx.repo, ctx.embedder)
+    ingested = skipped = failed = 0
+    for pdf in pdfs:
+        extractor = extractor_for(pdf)
+        try:
+            result = service.ingest_document(
+                title=pdf.stem,
+                text=extractor.extract(pdf),
+                extraction_method=extractor.extraction_method,
+                kind=kind,
+                on_duplicate=on_duplicate,  # type: ignore[arg-type]
+            )
+        except DuplicateSourceError as exc:
+            typer.secho(f"duplicate: {pdf.name} ({exc.matched_on})", fg=typer.colors.YELLOW)
+            failed += 1
+            continue
+        except Exception as exc:  # a corrupt PDF must not abort the batch
+            typer.secho(f"failed: {pdf.name}: {exc}", fg=typer.colors.RED, err=True)
+            failed += 1
+            continue
+        if result.created:
+            ingested += 1
+            typer.echo(f"ingested [{result.source.id}] {result.source.title}")
+        else:
+            skipped += 1
+            typer.echo(f"skipped (already known): {pdf.name}")
+    typer.echo(f"done: {ingested} ingested, {skipped} skipped, {failed} failed")
+    if failed:
+        raise typer.Exit(code=1)
+
+
 def _ingest_fetched(identifier: str, fetcher: MetadataFetcher, on_duplicate: str) -> None:
     ctx = _context()
     try:

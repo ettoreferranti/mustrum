@@ -26,6 +26,7 @@ uv run mustrum --help
 uv run mustrum ingest arxiv 1706.03762    # authoritative metadata + BibTeX
 uv run mustrum ingest doi 10.1109/CVPR.2016.90
 uv run mustrum ingest file paper.pdf --title "..." --author "..." --year 2024
+uv run mustrum ingest folder ~/papers -r   # batch-import every PDF; re-run safe
 uv run mustrum summarise 1                # grounded, verified summary
 
 # ideas and matching

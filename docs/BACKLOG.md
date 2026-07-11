@@ -49,7 +49,7 @@ stories at the bottom of the relevant epic.
 |---|---|---|---|
 | E4-1 | Chunked source embeddings + idea embeddings; cosine ranking, threshold | M | done |
 | E4-2 | Suggest/confirm/reject workflow; manual match creation | M | done |
-| E4-3 | Grounded match rationale (quotes, verified) | S | todo |
+| E4-3 | Grounded match rationale (quotes, verified): `match explain`, `match suggest --explain` | S | done |
 | E4-4 | Gap analysis report (unsupported ideas, orphan sources) | S | done |
 
 ### E5 Bibliography & writing support

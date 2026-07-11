@@ -461,8 +461,31 @@ def idea_link(from_id: int, to_id: int, relation: IdeaRelation = IdeaRelation.RE
 # -- matching ----------------------------------------------------------------------
 
 
+def _explain_match(ctx: Context, match_id: int, force: bool = False) -> bool:
+    """Generate + print a grounded rationale; returns False on grounding failure."""
+    from mustrum.core.services.rationale import RationaleFailure, RationaleService
+
+    service = RationaleService(ctx.repo, ctx.llm, max_source_chars=ctx.config.max_source_chars)
+    try:
+        match = service.explain(match_id, force=force)
+    except (RationaleFailure, LookupError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        return False
+    typer.echo(f"  why: {match.rationale}")
+    for quote in match.quotes:
+        typer.echo(f'  evidence: "{quote}"')
+    return True
+
+
 @match_app.command("suggest")
-def match_suggest(idea_id: int, limit: int = 20, threshold: float = 0.35) -> None:
+def match_suggest(
+    idea_id: int,
+    limit: int = 20,
+    threshold: float = 0.35,
+    explain: Annotated[
+        bool, typer.Option("--explain", help="Generate a grounded rationale per suggestion.")
+    ] = False,
+) -> None:
     ctx = _context()
     service = MatchService(ctx.repo, ctx.embedder.model_name, threshold=threshold)
     try:
@@ -475,6 +498,23 @@ def match_suggest(idea_id: int, limit: int = 20, threshold: float = 0.35) -> Non
     for match in matches:
         source = ctx.repo.get_source(match.source_id)
         typer.echo(f"match [{match.id}] score {match.score:.2f}: [{source.id}] {source.title}")
+        if explain:
+            assert match.id is not None
+            _explain_match(ctx, match.id)
+
+
+@match_app.command("explain")
+def match_explain(match_id: int, force: Annotated[bool, typer.Option("--force")] = False) -> None:
+    """Explain why a matched source is relevant to its idea, with verified
+    quotes from the paper. Unverifiable explanations are rejected, not stored."""
+    ctx = _context()
+    try:
+        ctx.repo.get_match(match_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    if not _explain_match(ctx, match_id, force=force):
+        raise typer.Exit(code=1)
 
 
 @match_app.command("list")
@@ -486,6 +526,8 @@ def match_list(idea_id: int, status: MatchStatus | None = None) -> None:
             f"[{match.id}] {match.status.value} score {match.score:.2f}: "
             f"[{source.id}] {source.title}"
         )
+        if match.rationale:
+            typer.echo(f"  why: {match.rationale}")
 
 
 @match_app.command("confirm")

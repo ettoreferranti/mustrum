@@ -316,3 +316,45 @@ class TestSourceAttach:
     def test_attach_missing_file(self):
         invoke("contact", "add", "pad")
         invoke("source", "attach", "1", "/nonexistent.pdf", expect_exit=1)
+
+
+class TestMatchExplain:
+    def _setup_match(self, note, monkeypatch, quote="molecular property prediction"):
+        import json
+
+        invoke("ingest", "file", str(note), "--title", "Graph networks for molecules")
+        invoke("idea", "new", "molecular ML", "graph networks for molecule property prediction")
+        invoke("match", "suggest", "1", "--threshold", "0.05")
+        monkeypatch.setenv(
+            "MUSTRUM_FAKE_LLM_RESPONSE",
+            json.dumps({"rationale": "Applies GNNs to molecules.", "quotes": [quote]}),
+        )
+
+    def test_explain_stores_and_prints_rationale(self, note, monkeypatch):
+        self._setup_match(note, monkeypatch)
+        out = invoke("match", "explain", "1")
+        assert "why: Applies GNNs to molecules." in out
+        assert 'evidence: "molecular property prediction"' in out
+        assert "why: Applies GNNs" in invoke("match", "list", "1")
+
+    def test_suggest_with_explain_flag(self, note, monkeypatch):
+        import json
+
+        invoke("ingest", "file", str(note), "--title", "Graph networks for molecules")
+        monkeypatch.setenv(
+            "MUSTRUM_FAKE_LLM_RESPONSE",
+            json.dumps({"rationale": "Relevant.", "quotes": ["molecular property prediction"]}),
+        )
+        invoke("idea", "new", "molecular ML", "graph networks molecule property prediction")
+        out = invoke("match", "suggest", "1", "--threshold", "0.05", "--explain")
+        assert "why: Relevant." in out
+
+    def test_unverifiable_rationale_fails_loudly(self, note, monkeypatch):
+        self._setup_match(note, monkeypatch, quote="fabricated nonsense span")
+        out = invoke("match", "explain", "1", expect_exit=1)
+        assert "failed grounding" in out
+        assert "why:" not in invoke("match", "list", "1")
+
+    def test_explain_missing_match(self):
+        invoke("contact", "add", "pad")
+        invoke("match", "explain", "9", expect_exit=1)

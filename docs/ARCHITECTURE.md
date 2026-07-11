@@ -45,7 +45,8 @@ mustrum/
     normalize.py     # title/DOI normalisation + title_hash (dedup keys)
     ports.py         # Protocol definitions (all ports)
     verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
-    services/        # ingest, summarise, match, relatedwork, audit, chunk
+    services/        # ingest, summarise, match, rationale, relatedwork,
+                     #   audit, chunk, grounded (shared generate→verify loop)
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
@@ -143,7 +144,9 @@ strictest test bar in the project (see §7).
 - **Ingest arXiv/DOI:** fetch metadata + BibTeX → same pipeline; fetched
   fields marked authoritative.
 - **New idea / new version:** store version → embed → match against all source
-  embeddings → present ranked suggestions → user confirms/rejects.
+  embeddings → present ranked suggestions → user confirms/rejects. On demand
+  (`match explain`), an LLM rationale grounded in verified quotes is attached
+  via the shared grounded-generation loop (same rejection rules as summaries).
 - **Related-work skeleton:** collect confirmed matches for the idea → for each
   source pull citation key + verified summary → render Markdown/LaTeX +
   matching `.bib`. Assembly is fully deterministic in v1 (no LLM in this

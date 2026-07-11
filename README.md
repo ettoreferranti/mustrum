@@ -90,7 +90,8 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 
 | Command | Purpose |
 |---|---|
-| `mustrum match suggest <idea-id>` | Ranked source candidates (`--threshold`, `--limit`) |
+| `mustrum match suggest <idea-id>` | Ranked source candidates (`--threshold`, `--limit`, `--explain`) |
+| `mustrum match explain <match-id>` | Why is this source relevant? Grounded rationale with verified quotes (`--force`) |
 | `mustrum match confirm <match-id>` / `mustrum match reject <match-id>` | Your judgement is final |
 | `mustrum match add <idea-id> <source-id>` | Manually link a source |
 | `mustrum match list <idea-id>` | Review matches (`--status`) |

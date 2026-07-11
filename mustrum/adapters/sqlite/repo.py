@@ -412,6 +412,21 @@ class SqliteRepo:
             id=cur.lastrowid,
         )
 
+    def get_match(self, match_id: int) -> Match:
+        row = self._conn.execute("SELECT * FROM matches WHERE id = ?", (match_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"no match with id {match_id}")
+        return self._row_to_match(row)
+
+    def set_match_rationale(self, match_id: int, rationale: str, quotes: tuple[str, ...]) -> None:
+        cur = self._conn.execute(
+            "UPDATE matches SET rationale = ?, quotes = ? WHERE id = ?",
+            (rationale, json.dumps(list(quotes)), match_id),
+        )
+        if cur.rowcount == 0:
+            raise KeyError(f"no match with id {match_id}")
+        self._conn.commit()
+
     def set_match_status(self, match_id: int, status: MatchStatus) -> None:
         cur = self._conn.execute(
             "UPDATE matches SET status = ? WHERE id = ?", (status.value, match_id)
@@ -435,19 +450,19 @@ class SqliteRepo:
         rows = self._conn.execute(
             f"SELECT * FROM matches {where} ORDER BY score DESC", params
         ).fetchall()
-        return [
-            Match(
-                idea_id=r["idea_id"],
-                source_id=r["source_id"],
-                score=r["score"],
-                status=MatchStatus(r["status"]),
-                rationale=r["rationale"],
-                quotes=tuple(json.loads(r["quotes"])),
-                created_at=_parse_dt(r["created_at"]),
-                id=r["id"],
-            )
-            for r in rows
-        ]
+        return [self._row_to_match(r) for r in rows]
+
+    def _row_to_match(self, row: sqlite3.Row) -> Match:
+        return Match(
+            idea_id=row["idea_id"],
+            source_id=row["source_id"],
+            score=row["score"],
+            status=MatchStatus(row["status"]),
+            rationale=row["rationale"],
+            quotes=tuple(json.loads(row["quotes"])),
+            created_at=_parse_dt(row["created_at"]),
+            id=row["id"],
+        )
 
     # -- bibliography ------------------------------------------------------------------
 

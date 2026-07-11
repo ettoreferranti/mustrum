@@ -557,3 +557,31 @@ class TestDeleteSummary:
     def test_delete_missing_is_noop(self, repo):
         repo.add_source(make_source())
         repo.delete_summary(1)
+
+
+class TestMatchRationale:
+    def _match(self, repo):
+        idea = repo.add_idea(Idea(title="t"))
+        source = repo.add_source(make_source())
+        return repo.add_match(Match(idea_id=idea.id, source_id=source.id, score=0.5))
+
+    def test_get_match_roundtrip(self, repo):
+        m = self._match(repo)
+        assert repo.get_match(m.id) == m
+
+    def test_get_match_missing_raises(self, repo):
+        with pytest.raises(KeyError):
+            repo.get_match(77)
+
+    def test_set_rationale_updates_match(self, repo):
+        m = self._match(repo)
+        repo.set_match_rationale(m.id, "uses attention", ("q1", "q2"))
+        got = repo.get_match(m.id)
+        assert got.rationale == "uses attention"
+        assert got.quotes == ("q1", "q2")
+        assert got.score == m.score  # untouched
+        assert got.status == m.status
+
+    def test_set_rationale_missing_match_raises(self, repo):
+        with pytest.raises(KeyError):
+            repo.set_match_rationale(77, "x", ())

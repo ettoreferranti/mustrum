@@ -47,6 +47,7 @@ mustrum/
     verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
     services/        # ingest, summarise, match, rationale, relatedwork,
                      #   audit, chunk, backup (plain-file export/restore),
+                     #   brainstorm (quarantined creative mode),
                      #   grounded (shared generate→verify loop)
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
@@ -156,6 +157,11 @@ strictest test bar in the project (see §7).
   may-not-add-sources rule.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
+- **Brainstorm (E9-2, the only creative path):** library context → LLM
+  proposals → labelled machine-generated output. Produces no citations; the
+  only library references ("inspired by") are titles resolved against real
+  records, unresolvable mentions dropped. Nothing stored unless the user
+  saves, and saved ideas carry the permanent 'brainstorm' tag.
 - **Backup (NFR-5):** `export` walks the repo into a plain-file bundle
   (canonical JSON + verbatim texts + byte-exact .bib + generated Markdown
   views); `restore` rebuilds an empty DB from it, remapping ids and

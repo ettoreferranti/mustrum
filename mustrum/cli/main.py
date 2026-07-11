@@ -718,6 +718,49 @@ def graph(
         webbrowser.open(out.resolve().as_uri())
 
 
+@app.command("brainstorm")
+def brainstorm(
+    count: Annotated[int, typer.Option("--count", "-n")] = 3,
+    focus: Annotated[str, typer.Option("--focus", help="Steer towards a topic.")] = "",
+    save: Annotated[
+        bool, typer.Option("--save", help="Save proposals as ideas (tagged 'brainstorm').")
+    ] = False,
+) -> None:
+    """Generate NEW research idea proposals from your library. Creative mode:
+    output is machine-generated and unverified — clearly labelled, never mixed
+    with citation-bearing output."""
+    from mustrum.core.services.brainstorm import (
+        BRAINSTORM_TAG,
+        BrainstormFailure,
+        BrainstormService,
+    )
+
+    ctx = _context()
+    service = BrainstormService(ctx.repo, ctx.llm)
+    try:
+        proposals = service.propose(count=count, focus=focus)
+    except (LookupError, BrainstormFailure) as exc:
+        _fail(str(exc))
+        return
+    typer.secho(
+        "=== machine-generated brainstorm — creative output, NOT verified, cites nothing ===",
+        fg=typer.colors.MAGENTA,
+    )
+    idea_service = IdeaService(ctx.repo, ctx.embedder)
+    for number, proposal in enumerate(proposals, start=1):
+        typer.echo(f"\n{number}. {proposal.title}")
+        typer.echo(f"   {proposal.description}")
+        if proposal.inspirations:
+            typer.echo(f"   inspired by: {'; '.join(proposal.inspirations)}")
+        if save:
+            idea = idea_service.create(proposal.title, proposal.description)
+            assert idea.id is not None
+            ctx.repo.tag(EntityKind.IDEA, idea.id, BRAINSTORM_TAG)
+            typer.echo(f"   saved as idea [{idea.id}] (tagged '{BRAINSTORM_TAG}')")
+    if not save:
+        typer.echo("\n(re-run with --save to keep them, or: mustrum idea new ...)")
+
+
 @app.command("export")
 def export_cmd(
     directory: Path,

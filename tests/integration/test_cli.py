@@ -395,3 +395,42 @@ class TestExportRestore:
 
     def test_restore_missing_directory(self):
         invoke("restore", "/nonexistent/backup", expect_exit=1)
+
+
+class TestBrainstorm:
+    def _reply(self):
+        import json
+
+        return json.dumps(
+            {
+                "ideas": [
+                    {
+                        "title": "Spin-off direction",
+                        "description": "Combine the graph work with new evaluation.",
+                        "based_on": ["Graph networks"],
+                    }
+                ]
+            }
+        )
+
+    def test_brainstorm_prints_labelled_output(self, note, monkeypatch):
+        invoke("ingest", "file", str(note), "--title", "Graph networks")
+        monkeypatch.setenv("MUSTRUM_FAKE_LLM_RESPONSE", self._reply())
+        out = invoke("brainstorm", "-n", "1")
+        assert "machine-generated brainstorm" in out
+        assert "NOT verified" in out
+        assert "Spin-off direction" in out
+        assert "inspired by: Graph networks" in out
+        assert "--save" in out
+        # nothing stored without --save
+        assert invoke("idea", "list") == ""
+
+    def test_brainstorm_save_tags_ideas(self, note, monkeypatch):
+        invoke("ingest", "file", str(note), "--title", "Graph networks")
+        monkeypatch.setenv("MUSTRUM_FAKE_LLM_RESPONSE", self._reply())
+        out = invoke("brainstorm", "-n", "1", "--save")
+        assert "saved as idea [1] (tagged 'brainstorm')" in out
+        assert "Spin-off direction" in invoke("idea", "list")
+
+    def test_brainstorm_empty_library_fails(self):
+        invoke("brainstorm", expect_exit=1)

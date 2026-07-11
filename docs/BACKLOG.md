@@ -57,15 +57,15 @@ stories at the bottom of the relevant epic.
 ### E6 Graph
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E6-1 | Self-contained HTML graph export (Cytoscape.js embedded): idea hubs, source stars, idea links | M | todo |
-| E6-2 | Filters (tag/idea/type) + node detail panel | S | todo |
-| E6-3 | Contacts as graph nodes | C | todo |
+| E6-1 | Self-contained HTML graph export (Cytoscape.js embedded): idea hubs, source stars, idea links | M | done |
+| E6-2 | Filters (tag/idea/type) + node detail panel | S | partial (panel done, filters todo) |
+| E6-3 | Contacts as graph nodes | C | done |
 
 ### E7 Contacts
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E7-1 | Contact CRUD (person/company/institution/university) | M | todo |
-| E7-2 | Contact↔idea / contact↔source links with why-relevant note | S | todo |
+| E7-1 | Contact CRUD (person/company/institution/university) | M | done |
+| E7-2 | Contact↔idea / contact↔source links with why-relevant note | S | done |
 
 ### E8 Search & organisation
 | ID | Story | Prio | Status |

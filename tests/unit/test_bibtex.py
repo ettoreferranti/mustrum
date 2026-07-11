@@ -87,3 +87,21 @@ class TestRenderDerivedEntry:
         assert "year" not in entry
         assert "doi" not in entry
         assert "eprint" not in entry
+
+
+class TestSurnameEdgeCases:
+    def test_three_token_author_uses_last_token(self):
+        source = make_source(authors=("Jean Claude Vandamme",))
+        assert make_citation_key(source, set()) == "vandamme2017attention"
+
+    def test_spaced_surname_in_family_comma_given_format(self):
+        source = make_source(authors=("Van Helsing, Abraham",))
+        assert make_citation_key(source, set()) == "vanhelsing2017attention"
+
+    def test_four_letter_title_word_is_significant(self):
+        source = make_source(title="Deep Learning Methods")
+        assert make_citation_key(source, set()) == "vaswani2017deep"
+
+    def test_unicode_surname_exact_key(self):
+        source = make_source(authors=("Rémi Müller-Straße",))
+        assert make_citation_key(source, set()) == "mllerstrae2017attention"

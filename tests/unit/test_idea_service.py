@@ -60,3 +60,10 @@ class TestIdeaService:
         a = service.create("a", "t")
         with pytest.raises(KeyError):
             service.link(a.id, 999, IdeaRelation.RELATED)
+
+
+class TestEmbeddingContract:
+    def test_idea_embedding_uses_chunk_zero(self, repo, service):
+        service.create("t", "text")
+        (embedding,) = repo.embeddings_for(EntityKind.IDEA, "fake-embed")
+        assert embedding.chunk_index == 0

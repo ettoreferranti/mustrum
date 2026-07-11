@@ -20,6 +20,9 @@ dev = [
     "mutmut>=3.2",
 ]
 
+[project.scripts]
+mustrum = "mustrum.cli.main:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -54,5 +57,11 @@ strict = true
 [tool.mutmut]
 paths_to_mutate = ["mustrum/core/"]
 tests_dir = ["tests/"]
-also_copy = ["mustrum/__init__.py", "mustrum/adapters/"]
+also_copy = [
+    "mustrum/__init__.py",
+    "mustrum/config.py",
+    "mustrum/adapters/",
+    "mustrum/cli/",
+    "mustrum/graph/",
+]
 do_not_mutate = ["mustrum/core/ports.py"]  # Protocol stubs: declarations, no behaviour

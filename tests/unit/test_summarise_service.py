@@ -128,3 +128,62 @@ class TestOverride:
         service = SummariseService(repo, FakeLLMProvider())
         with pytest.raises(KeyError):
             service.override(999, "x")
+
+
+class TestSummariseRetryPaths:
+    def test_unparsable_then_good_reply_succeeds(self, repo, source_id):
+        service = SummariseService(
+            repo, FakeLLMProvider(["utter garbage", good_reply()]), attempts=2
+        )
+        assert service.summarise(source_id).verified is True
+
+    def test_wrongly_typed_reply_then_good_reply_succeeds(self, repo, source_id):
+        wrong_types = json.dumps({"summary": 123, "quotes": ["We propose the Transformer"]})
+        service = SummariseService(repo, FakeLLMProvider([wrong_types, good_reply()]), attempts=2)
+        assert service.summarise(source_id).verified is True
+
+    def test_failure_message_names_source_and_attempts(self, repo, source_id):
+        bad = json.dumps({"summary": "s", "quotes": ["fabricated"]})
+        service = SummariseService(repo, FakeLLMProvider([bad, bad]), attempts=2)
+        with pytest.raises(
+            GroundingFailure,
+            match=f"source {source_id} failed grounding after 2 attempts",
+        ):
+            service.summarise(source_id)
+
+
+class TestParserEdges:
+    def test_braces_inside_summary_string(self, repo, source_id):
+        reply = json.dumps(
+            {"summary": "A {braced} summary.", "quotes": ["We propose the Transformer"]}
+        )
+        service = SummariseService(repo, FakeLLMProvider([reply]))
+        assert service.summarise(source_id).text == "A {braced} summary."
+
+    def test_single_leading_character_before_json(self, repo, source_id):
+        service = SummariseService(repo, FakeLLMProvider([" " + good_reply()]))
+        assert service.summarise(source_id).verified is True
+
+    def test_trailing_character_after_json(self, repo, source_id):
+        service = SummariseService(repo, FakeLLMProvider([good_reply() + "!"]))
+        assert service.summarise(source_id).verified is True
+
+    def test_failure_exception_carries_details(self, repo, source_id):
+        bad = json.dumps({"summary": "s", "quotes": ["fabricated"]})
+        service = SummariseService(repo, FakeLLMProvider([bad]), attempts=1)
+        with pytest.raises(GroundingFailure) as exc:
+            service.summarise(source_id)
+        assert exc.value.source_id == source_id
+        assert exc.value.last_result is not None
+
+    def test_default_truncation_limits_prompt(self, repo):
+        long_text = "x" * 16500 + " ZZZMARKER"
+        ingest = IngestService(repo, FakeEmbeddingProvider())
+        sid = ingest.ingest_document(
+            title="Huge", text=long_text, extraction_method="plaintext"
+        ).source.id
+        reply = json.dumps({"summary": "s", "quotes": ["x" * 50]})
+        llm = FakeLLMProvider([reply])
+        SummariseService(repo, llm).summarise(sid)
+        prompt, _ = llm.calls[0]
+        assert "ZZZMARKER" not in prompt  # beyond the 16000-char default excerpt

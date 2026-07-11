@@ -155,3 +155,99 @@ class TestGapReport:
     def test_empty_library(self, repo):
         service = MatchService(repo, "fake-embed")
         assert service.gap_report() == GapReport(unsupported_ideas=(), orphan_sources=())
+
+
+@pytest.fixture
+def handmade(repo):
+    """Handcrafted embeddings for exact-score control (model 'handmade')."""
+    from mustrum.core.models import Embedding, EntityKind, Idea, IdeaVersion, Source, SourceKind
+
+    idea = repo.add_idea(Idea(title="i"))
+    repo.add_idea_version(IdeaVersion(idea_id=idea.id, text="t"))
+    repo.store_embeddings([Embedding(EntityKind.IDEA, idea.id, 0, "handmade", (1.0, 0.0))])
+
+    def add_source(title, chunks):
+        source = repo.add_source(Source(kind=SourceKind.PAPER, title=title))
+        repo.store_embeddings(
+            [
+                Embedding(EntityKind.SOURCE, source.id, i, "handmade", vec)
+                for i, vec in enumerate(chunks)
+            ]
+        )
+        return source
+
+    return repo, idea, add_source
+
+
+class TestSuggestExactScores:
+    def test_source_score_is_max_over_chunks(self, handmade):
+        repo, idea, add_source = handmade
+        # chunk 0 is a perfect match, chunk 1 orthogonal: max must win
+        best = add_source("best", [(1.0, 0.0), (0.0, 1.0)])
+        add_source("mid", [(0.5, 0.5)])
+        service = MatchService(repo, "handmade", threshold=0.1)
+        matches = service.suggest(idea.id)
+        by_source = {m.source_id: m.score for m in matches}
+        assert by_source[best.id] == pytest.approx(1.0)
+        assert matches[0].source_id == best.id
+
+    def test_score_exactly_at_threshold_is_kept(self, handmade):
+        repo, idea, add_source = handmade
+        source = add_source("s", [(1.0, 0.0)])  # cosine == 1.0 exactly
+        service = MatchService(repo, "handmade", threshold=1.0)
+        assert [m.source_id for m in service.suggest(idea.id)] == [source.id]
+
+    def test_match_on_other_idea_does_not_block_suggestion(self, handmade):
+        from mustrum.core.models import Idea, Match
+
+        repo, idea, add_source = handmade
+        source = add_source("s", [(1.0, 0.0)])
+        other = repo.add_idea(Idea(title="other"))
+        repo.add_match(Match(idea_id=other.id, source_id=source.id, score=0.9))
+        service = MatchService(repo, "handmade", threshold=0.1)
+        assert [m.source_id for m in service.suggest(idea.id)] == [source.id]
+
+    def test_already_matched_source_skipped_but_later_ones_still_suggested(self, handmade):
+        from mustrum.core.models import Match
+
+        repo, idea, add_source = handmade
+        top = add_source("top", [(1.0, 0.0)])
+        lower = add_source("lower", [(0.8, 0.6)])  # cosine 0.8
+        repo.add_match(Match(idea_id=idea.id, source_id=top.id, score=1.0))
+        service = MatchService(repo, "handmade", threshold=0.5)
+        assert [m.source_id for m in service.suggest(idea.id)] == [lower.id]
+
+
+class TestGapReportExact:
+    def test_solely_confirmed_idea_and_its_source_excluded(self, handmade):
+        from mustrum.core.models import Match, MatchStatus
+
+        repo, idea, add_source = handmade
+        source = add_source("s", [(1.0, 0.0)])
+        match = repo.add_match(Match(idea_id=idea.id, source_id=source.id, score=1.0))
+        repo.set_match_status(match.id, MatchStatus.CONFIRMED)
+        report = MatchService(repo, "handmade").gap_report()
+        assert idea.id not in report.unsupported_ideas
+        assert source.id not in report.orphan_sources
+
+
+class TestDefaultsAndScoping:
+    def test_default_threshold_includes_half_similarity(self, handmade):
+        repo, idea, add_source = handmade
+        source = add_source("s", [(0.5, 0.866025)])  # cosine 0.5 vs (1,0)
+        service = MatchService(repo, "handmade")  # default threshold 0.35
+        assert [m.source_id for m in service.suggest(idea.id)] == [source.id]
+
+    def test_confirmed_sources_scoped_to_idea(self, handmade):
+        from mustrum.core.models import Idea, Match, MatchStatus
+
+        repo, idea, add_source = handmade
+        mine = add_source("mine", [(1.0, 0.0)])
+        theirs = add_source("theirs", [(0.0, 1.0)])
+        other = repo.add_idea(Idea(title="other"))
+        m1 = repo.add_match(Match(idea_id=idea.id, source_id=mine.id, score=1.0))
+        m2 = repo.add_match(Match(idea_id=other.id, source_id=theirs.id, score=1.0))
+        repo.set_match_status(m1.id, MatchStatus.CONFIRMED)
+        repo.set_match_status(m2.id, MatchStatus.CONFIRMED)
+        service = MatchService(repo, "handmade")
+        assert [s.id for s in service.confirmed_sources(idea.id)] == [mine.id]

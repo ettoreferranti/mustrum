@@ -1,0 +1,543 @@
+"""Mustrum CLI: the driving adapter. All logic lives in core services."""
+
+from __future__ import annotations
+
+import os
+import webbrowser
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from mustrum.adapters.fake import FakeEmbeddingProvider, FakeLLMProvider
+from mustrum.adapters.ollama import OllamaEmbedder, OllamaLLM
+from mustrum.adapters.pdf import extractor_for
+from mustrum.adapters.sqlite.repo import SqliteRepo
+from mustrum.config import Config, load_config
+from mustrum.core.models import (
+    Contact,
+    ContactKind,
+    ContactLink,
+    EntityKind,
+    IdeaRelation,
+    Match,
+    MatchStatus,
+    ReadingStatus,
+    Source,
+    SourceKind,
+)
+from mustrum.core.ports import EmbeddingProvider, LLMProvider, MetadataFetcher
+from mustrum.core.services.audit import AuditService
+from mustrum.core.services.ideas import IdeaService
+from mustrum.core.services.ingest import DuplicateSourceError, IngestService
+from mustrum.core.services.match import MatchService
+from mustrum.core.services.relatedwork import RelatedWorkService
+from mustrum.core.services.summarise import GroundingFailure, SummariseService
+
+app = typer.Typer(help="Mustrum — personal knowledge repository for academic research.")
+ingest_app = typer.Typer(help="Add sources to the library.")
+source_app = typer.Typer(help="Browse and annotate sources.")
+idea_app = typer.Typer(help="Capture and evolve research ideas.")
+match_app = typer.Typer(help="Match ideas with sources.")
+contact_app = typer.Typer(help="People and institutions related to your work.")
+app.add_typer(ingest_app, name="ingest")
+app.add_typer(source_app, name="source")
+app.add_typer(idea_app, name="idea")
+app.add_typer(match_app, name="match")
+app.add_typer(contact_app, name="contact")
+
+
+@dataclass
+class Context:
+    config: Config
+    repo: SqliteRepo
+    embedder: EmbeddingProvider
+    llm: LLMProvider
+
+
+def _context() -> Context:
+    config = load_config()
+    config.db_path.parent.mkdir(parents=True, exist_ok=True)
+    repo = SqliteRepo(config.db_path)
+    if os.environ.get("MUSTRUM_FAKE_PROVIDERS"):  # offline test hook
+        return Context(config, repo, FakeEmbeddingProvider(), FakeLLMProvider())
+    return Context(
+        config,
+        repo,
+        OllamaEmbedder(config.embed_model, base_url=config.ollama_url),
+        OllamaLLM(config.llm_model, base_url=config.ollama_url),
+    )
+
+
+def _fail(message: str) -> None:
+    typer.secho(message, fg=typer.colors.RED, err=True)
+    raise typer.Exit(code=1)
+
+
+def _print_source(source: Source) -> None:
+    year = f" ({source.year})" if source.year else ""
+    typer.echo(f"[{source.id}] {source.title}{year} — {source.kind.value}")
+
+
+# -- ingest ---------------------------------------------------------------------
+
+DupOption = Annotated[str, typer.Option("--on-duplicate", help="fail | skip | merge")]
+
+
+@ingest_app.command("file")
+def ingest_file(
+    path: Path,
+    title: Annotated[str | None, typer.Option(help="Defaults to the file name.")] = None,
+    kind: SourceKind = SourceKind.PAPER,
+    author: Annotated[list[str] | None, typer.Option(help="Repeatable.")] = None,
+    year: int | None = None,
+    on_duplicate: DupOption = "fail",
+) -> None:
+    """Ingest a PDF or plain-text/Markdown file."""
+    if not path.is_file():
+        _fail(f"no such file: {path}")
+    ctx = _context()
+    extractor = extractor_for(path)
+    try:
+        result = IngestService(ctx.repo, ctx.embedder).ingest_document(
+            title=title or path.stem,
+            text=extractor.extract(path),
+            extraction_method=extractor.extraction_method,
+            kind=kind,
+            authors=tuple(author or ()),
+            year=year,
+            on_duplicate=on_duplicate,  # type: ignore[arg-type]
+        )
+    except DuplicateSourceError as exc:
+        _fail(f"{exc}\nUse --on-duplicate skip|merge to resolve.")
+        return
+    verb = (
+        "merged into"
+        if result.merged
+        else ("already in library:" if not result.created else "ingested")
+    )
+    typer.echo(f"{verb} ", nl=False)
+    _print_source(result.source)
+
+
+def _ingest_fetched(identifier: str, fetcher: MetadataFetcher, on_duplicate: str) -> None:
+    ctx = _context()
+    try:
+        meta = fetcher.fetch(identifier)
+    except (LookupError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    try:
+        result = IngestService(ctx.repo, ctx.embedder).ingest_fetched(
+            meta,
+            on_duplicate=on_duplicate,  # type: ignore[arg-type]
+        )
+    except DuplicateSourceError as exc:
+        _fail(f"{exc}\nUse --on-duplicate skip|merge to resolve.")
+        return
+    verb = (
+        "merged into"
+        if result.merged
+        else ("already in library:" if not result.created else "ingested")
+    )
+    typer.echo(f"{verb} ", nl=False)
+    _print_source(result.source)
+    if result.source.id is not None:
+        bib = ctx.repo.get_bib_entry(result.source.id)
+        if bib:
+            typer.echo(f"citation key: {bib.citation_key}")
+
+
+@ingest_app.command("arxiv")
+def ingest_arxiv(arxiv_id: str, on_duplicate: DupOption = "fail") -> None:
+    """Fetch authoritative metadata + BibTeX for an arXiv id."""
+    from mustrum.adapters.arxiv import ArxivFetcher
+
+    _ingest_fetched(arxiv_id, ArxivFetcher(), on_duplicate)
+
+
+@ingest_app.command("doi")
+def ingest_doi(doi: str, on_duplicate: DupOption = "fail") -> None:
+    """Fetch authoritative metadata + BibTeX for a DOI via Crossref."""
+    from mustrum.adapters.crossref import CrossrefFetcher
+
+    _ingest_fetched(doi, CrossrefFetcher(), on_duplicate)
+
+
+# -- sources ---------------------------------------------------------------------
+
+
+@source_app.command("list")
+def source_list() -> None:
+    ctx = _context()
+    for source in ctx.repo.list_sources():
+        _print_source(source)
+
+
+@source_app.command("show")
+def source_show(source_id: int) -> None:
+    ctx = _context()
+    try:
+        source = ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    _print_source(source)
+    if source.authors:
+        typer.echo(f"authors: {', '.join(source.authors)}")
+    for field in ("doi", "arxiv_id"):
+        if getattr(source, field):
+            typer.echo(f"{field}: {getattr(source, field)}")
+    typer.echo(f"status: {source.reading_status.value}")
+    tags = ctx.repo.tags_for(EntityKind.SOURCE, source_id)
+    if tags:
+        typer.echo(f"tags: {', '.join(sorted(tags))}")
+    if source.notes:
+        typer.echo(f"notes: {source.notes}")
+    summary = ctx.repo.get_summary(source_id)
+    if summary:
+        origin = "user" if summary.user_override else summary.model
+        typer.echo(f"summary ({origin}, verified={summary.verified}): {summary.text}")
+    bib = ctx.repo.get_bib_entry(source_id)
+    if bib:
+        typer.echo(f"citation key: {bib.citation_key} ({bib.origin.value})")
+
+
+@source_app.command("status")
+def source_status(source_id: int, status: ReadingStatus) -> None:
+    ctx = _context()
+    try:
+        ctx.repo.set_reading_status(source_id, status)
+    except KeyError as exc:
+        _fail(str(exc))
+
+
+@source_app.command("note")
+def source_note(source_id: int, text: str) -> None:
+    ctx = _context()
+    try:
+        ctx.repo.set_source_notes(source_id, text)
+    except KeyError as exc:
+        _fail(str(exc))
+
+
+@source_app.command("tag")
+def source_tag(
+    source_id: int,
+    tag: str,
+    remove: Annotated[bool, typer.Option("--remove")] = False,
+) -> None:
+    ctx = _context()
+    try:
+        ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    if remove:
+        ctx.repo.untag(EntityKind.SOURCE, source_id, tag)
+    else:
+        ctx.repo.tag(EntityKind.SOURCE, source_id, tag)
+
+
+# -- ideas -----------------------------------------------------------------------
+
+
+@idea_app.command("new")
+def idea_new(title: str, text: str) -> None:
+    ctx = _context()
+    idea = IdeaService(ctx.repo, ctx.embedder).create(title, text)
+    typer.echo(f"created idea [{idea.id}] {idea.title}")
+
+
+@idea_app.command("revise")
+def idea_revise(idea_id: int, text: str) -> None:
+    ctx = _context()
+    try:
+        IdeaService(ctx.repo, ctx.embedder).revise(idea_id, text)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    versions = ctx.repo.get_idea_versions(idea_id)
+    typer.echo(f"idea {idea_id} now has {len(versions)} versions")
+
+
+@idea_app.command("list")
+def idea_list() -> None:
+    ctx = _context()
+    for idea in ctx.repo.list_ideas():
+        typer.echo(f"[{idea.id}] {idea.title}")
+
+
+@idea_app.command("show")
+def idea_show(idea_id: int, history: Annotated[bool, typer.Option("--history")] = False) -> None:
+    ctx = _context()
+    try:
+        idea = ctx.repo.get_idea(idea_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"[{idea.id}] {idea.title}")
+    versions = ctx.repo.get_idea_versions(idea_id)
+    if history:
+        for v in versions:
+            typer.echo(f"  v{v.id} ({v.created_at:%Y-%m-%d}): {v.text}")
+    elif versions:
+        typer.echo(versions[-1].text)
+    for match in ctx.repo.list_matches(idea_id, MatchStatus.CONFIRMED):
+        source = ctx.repo.get_source(match.source_id)
+        typer.echo(f"  confirmed: [{source.id}] {source.title} (score {match.score:.2f})")
+
+
+@idea_app.command("link")
+def idea_link(from_id: int, to_id: int, relation: IdeaRelation = IdeaRelation.RELATED) -> None:
+    ctx = _context()
+    try:
+        IdeaService(ctx.repo, ctx.embedder).link(from_id, to_id, relation)
+    except (KeyError, ValueError) as exc:
+        _fail(str(exc))
+
+
+# -- matching ----------------------------------------------------------------------
+
+
+@match_app.command("suggest")
+def match_suggest(idea_id: int, limit: int = 20, threshold: float = 0.35) -> None:
+    ctx = _context()
+    service = MatchService(ctx.repo, ctx.embedder.model_name, threshold=threshold)
+    try:
+        matches = service.suggest(idea_id, limit=limit)
+    except (KeyError, LookupError) as exc:
+        _fail(str(exc))
+        return
+    if not matches:
+        typer.echo("no new suggestions above threshold")
+    for match in matches:
+        source = ctx.repo.get_source(match.source_id)
+        typer.echo(f"match [{match.id}] score {match.score:.2f}: [{source.id}] {source.title}")
+
+
+@match_app.command("list")
+def match_list(idea_id: int, status: MatchStatus | None = None) -> None:
+    ctx = _context()
+    for match in ctx.repo.list_matches(idea_id, status):
+        source = ctx.repo.get_source(match.source_id)
+        typer.echo(
+            f"[{match.id}] {match.status.value} score {match.score:.2f}: "
+            f"[{source.id}] {source.title}"
+        )
+
+
+@match_app.command("confirm")
+def match_confirm(match_id: int) -> None:
+    ctx = _context()
+    try:
+        MatchService(ctx.repo, ctx.embedder.model_name).confirm(match_id)
+    except KeyError as exc:
+        _fail(str(exc))
+
+
+@match_app.command("reject")
+def match_reject(match_id: int) -> None:
+    ctx = _context()
+    try:
+        MatchService(ctx.repo, ctx.embedder.model_name).reject(match_id)
+    except KeyError as exc:
+        _fail(str(exc))
+
+
+@match_app.command("add")
+def match_add(idea_id: int, source_id: int) -> None:
+    """Manually link a source to an idea (confirmed, FR-4.3)."""
+    ctx = _context()
+    try:
+        ctx.repo.get_idea(idea_id)
+        ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    match = ctx.repo.add_match(
+        Match(
+            idea_id=idea_id,
+            source_id=source_id,
+            score=1.0,
+            status=MatchStatus.CONFIRMED,
+            rationale="manually added",
+        )
+    )
+    typer.echo(f"confirmed match [{match.id}]")
+
+
+@app.command("gaps")
+def gaps() -> None:
+    """Ideas without confirmed sources; sources not matched to any idea."""
+    ctx = _context()
+    report = MatchService(ctx.repo, ctx.embedder.model_name).gap_report()
+    typer.echo("ideas without confirmed support:")
+    for idea_id in report.unsupported_ideas:
+        typer.echo(f"  [{idea_id}] {ctx.repo.get_idea(idea_id).title}")
+    typer.echo("sources not matched to any idea:")
+    for source_id in report.orphan_sources:
+        typer.echo(f"  [{source_id}] {ctx.repo.get_source(source_id).title}")
+
+
+# -- summaries, bibliography, writing ------------------------------------------------
+
+
+@app.command("summarise")
+def summarise(
+    source_id: int,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    override: Annotated[str | None, typer.Option(help="Store a hand-written summary.")] = None,
+) -> None:
+    """Generate a grounded, verified summary of a source (or store your own)."""
+    ctx = _context()
+    service = SummariseService(ctx.repo, ctx.llm, max_source_chars=ctx.config.max_source_chars)
+    try:
+        if override is not None:
+            summary = service.override(source_id, override)
+        else:
+            summary = service.summarise(source_id, force=force)
+    except (KeyError, LookupError, GroundingFailure) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(summary.text)
+    for quote in summary.evidence:
+        typer.echo(f'  evidence: "{quote}"')
+
+
+@app.command("bib")
+def bib(
+    idea_id: Annotated[int | None, typer.Option("--idea")] = None,
+    out: Annotated[Path | None, typer.Option("-o", "--out")] = None,
+) -> None:
+    """Export BibTeX for the whole library or one idea's confirmed sources."""
+    ctx = _context()
+    try:
+        content = RelatedWorkService(ctx.repo).export_bib(idea_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    if out:
+        out.write_text(content)
+        typer.echo(f"wrote {out}")
+    else:
+        typer.echo(content, nl=False)
+
+
+@app.command("related-work")
+def related_work(
+    idea_id: int,
+    fmt: Annotated[str, typer.Option("--format", help="markdown | latex")] = "markdown",
+    out: Annotated[Path | None, typer.Option("-o", "--out")] = None,
+) -> None:
+    """Citation-verified related-work skeleton for an idea."""
+    if fmt not in ("markdown", "latex"):
+        _fail("--format must be markdown or latex")
+    ctx = _context()
+    try:
+        text = RelatedWorkService(ctx.repo).skeleton(idea_id, fmt)  # type: ignore[arg-type]
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    if out:
+        out.write_text(text)
+        typer.echo(f"wrote {out}")
+    else:
+        typer.echo(text)
+
+
+@app.command("audit")
+def audit(path: Path) -> None:
+    """Check every citation in a draft against the library."""
+    if not path.is_file():
+        _fail(f"no such file: {path}")
+    ctx = _context()
+    report = AuditService(ctx.repo).audit_text(path.read_text())
+    typer.echo(f"{len(report.used_keys)} citation keys used, {len(report.known_keys)} known")
+    if report.unknown_keys:
+        for key in report.unknown_keys:
+            typer.secho(f"UNKNOWN: {key}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    typer.secho("all citations resolve to the library", fg=typer.colors.GREEN)
+
+
+@app.command("graph")
+def graph(
+    out: Annotated[Path, typer.Option("-o", "--out")] = Path("mustrum-graph.html"),
+    contacts: Annotated[bool, typer.Option(help="Include contact nodes.")] = True,
+    open_browser: Annotated[bool, typer.Option("--open")] = False,
+) -> None:
+    """Export the knowledge graph as a self-contained HTML file."""
+    from mustrum.graph.export import export_graph
+
+    ctx = _context()
+    out.write_text(export_graph(ctx.repo, include_contacts=contacts))
+    typer.echo(f"wrote {out}")
+    if open_browser:
+        webbrowser.open(out.resolve().as_uri())
+
+
+@app.command("search")
+def search(query: str, limit: int = 20) -> None:
+    """Full-text search across sources, ideas, summaries, and contacts."""
+    ctx = _context()
+    for hit in ctx.repo.search(query, limit=limit):
+        typer.echo(f"{hit.entity.value} [{hit.ref_id}]: {hit.snippet}")
+
+
+# -- contacts -------------------------------------------------------------------------
+
+
+@contact_app.command("add")
+def contact_add(
+    name: str,
+    kind: ContactKind = ContactKind.PERSON,
+    affiliation: str = "",
+    email: str = "",
+    url: str = "",
+    notes: str = "",
+) -> None:
+    ctx = _context()
+    contact = ctx.repo.add_contact(
+        Contact(name=name, kind=kind, affiliation=affiliation, email=email, url=url, notes=notes)
+    )
+    typer.echo(f"created contact [{contact.id}] {contact.name}")
+
+
+@contact_app.command("list")
+def contact_list() -> None:
+    ctx = _context()
+    for contact in ctx.repo.list_contacts():
+        extra = f" — {contact.affiliation}" if contact.affiliation else ""
+        typer.echo(f"[{contact.id}] {contact.name} ({contact.kind.value}){extra}")
+
+
+@contact_app.command("link")
+def contact_link(
+    contact_id: int,
+    why: Annotated[str, typer.Option("--why", help="Why is this contact relevant?")],
+    idea_id: Annotated[int | None, typer.Option("--idea")] = None,
+    source_id: Annotated[int | None, typer.Option("--source")] = None,
+) -> None:
+    ctx = _context()
+    try:
+        ctx.repo.get_contact(contact_id)
+        if idea_id is not None:
+            ctx.repo.get_idea(idea_id)
+        if source_id is not None:
+            ctx.repo.get_source(source_id)
+        link = ContactLink(contact_id=contact_id, why=why, idea_id=idea_id, source_id=source_id)
+    except (KeyError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    ctx.repo.add_contact_link(link)
+    typer.echo("linked")
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()

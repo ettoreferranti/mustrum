@@ -2,8 +2,8 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-10 (Phase 0 implemented: models, ports, SQLite
-> adapter, fake providers; services/CLI/graph not yet built).
+> Last updated: 2026-07-11 (Phase 1 implemented: all services, Ollama +
+> ingestion adapters, graph export, CLI).
 
 ## 1. Overview
 
@@ -36,7 +36,7 @@ run *after* any model output and reject ungrounded content.
 
 ## 2. Package layout
 
-Items marked ⏳ are planned (Phase 1+), everything else exists.
+Everything below exists; `mustrum/config.py` holds user config (TOML + env).
 
 ```
 mustrum/
@@ -45,16 +45,17 @@ mustrum/
     normalize.py     # title/DOI normalisation + title_hash (dedup keys)
     ports.py         # Protocol definitions (all ports)
     verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
-    services/        # ⏳ ingest, summarise, match, relatedwork, audit
+    services/        # ingest, summarise, match, relatedwork, audit, chunk
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
-    ollama.py        # ⏳ LLMProvider + EmbeddingProvider via Ollama HTTP API
-    arxiv.py         # ⏳ MetadataFetcher for arXiv IDs
-    crossref.py      # ⏳ MetadataFetcher for DOIs
-    pdf.py           # ⏳ TextExtractor via PyMuPDF
-  cli/               # ⏳ typer app: ingest, idea, match, bib, graph, audit
-  graph/             # ⏳ self-contained HTML export (embedded Cytoscape.js)
+    ollama.py        # OllamaLLM + OllamaEmbedder via Ollama HTTP API
+    arxiv.py         # MetadataFetcher for arXiv IDs (Atom API + /bibtex)
+    crossref.py      # MetadataFetcher for DOIs (api.crossref.org + doi.org)
+    pdf.py           # TextExtractors: PyMuPDF for PDFs, passthrough for text
+  cli/               # typer app: ingest, source, idea, match, contact,
+                     #   summarise, bib, related-work, audit, graph, search
+  graph/             # self-contained HTML export (vendored Cytoscape.js)
 tests/
   unit/  integration/
 docs/
@@ -139,9 +140,11 @@ strictest test bar in the project (see §7).
 - **New idea / new version:** store version → embed → match against all source
   embeddings → present ranked suggestions → user confirms/rejects.
 - **Related-work skeleton:** collect confirmed matches for the idea → for each
-  source pull citation key + verified summary → LLM arranges/groups (may not
-  add sources) → CitationVerifier + GroundingVerifier → render Markdown/LaTeX
-  + matching `.bib`.
+  source pull citation key + verified summary → render Markdown/LaTeX +
+  matching `.bib`. Assembly is fully deterministic in v1 (no LLM in this
+  path); the output still passes CitationVerifier as defence in depth.
+  LLM-assisted grouping/prose is a future enhancement and must keep the
+  may-not-add-sources rule.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
 
@@ -154,9 +157,23 @@ strictest test bar in the project (see §7).
   target ≥ 80%; for `core/verify.py` every surviving mutant must be reviewed
   and either killed or explicitly justified in the PR/commit. `core/ports.py`
   is excluded (Protocol stubs have no behaviour to mutate).
-- Justified surviving mutants (keep this list current):
-  - `normalize.title_hash`: `"utf-8"` → `"UTF-8"` — Python codec lookup is
-    case-insensitive, mutant is semantically equivalent; unkillable.
+- Justified surviving mutants (keep this list current). As of 2026-07-11 the
+  score is 891/972 killed (92%), `core/verify.py` at 100%. The survivors fall
+  into three reviewed classes, accepted as either equivalent or not worth a
+  test:
+  1. **Human-readable message text** — mutants that only alter error-message
+     or rendered-banner wording/case (`"XX…XX"`, upper/lower variants,
+     `ValueError(None)`); behaviour and data are unchanged.
+  2. **Default-constant tweaks** — changed default parameter values
+     (`limit=20→21`, `max_chars=1500→1501`, `attempts=2→3`); behavioural
+     defaults that matter (match threshold 0.35, source truncation 16000)
+     ARE test-pinned.
+  3. **Semantically equivalent code** — e.g. `"utf-8"`→`"UTF-8"` (codec names
+     case-insensitive), `float("-inf")`→`float("-INF")`, `>`→`>=` on a
+     running-max update, `zip(strict=True)`→`strict=False` behind a length
+     pre-check, unreachable guard permutations that fail through the same
+     `except` path.
+  Anything outside these classes must be killed before merging.
 - mypy strict on `mustrum/core/`; ruff for lint + format.
 
 ## 8. Decisions

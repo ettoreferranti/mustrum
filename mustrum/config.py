@@ -22,6 +22,9 @@ class Config:
     max_source_chars: int = 16000
     # Ollama context window in tokens (must comfortably fit max_source_chars)
     num_ctx: int = 16384
+    # contact e-mail for the Unpaywall API (open-access PDF lookup by DOI);
+    # empty disables OA lookup for DOI ingestion
+    unpaywall_email: str = ""
 
 
 def load_config(path: Path | None = None) -> Config:

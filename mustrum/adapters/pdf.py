@@ -15,6 +15,12 @@ class PdfExtractor:
             return "\n".join(page.get_text() for page in doc)
 
 
+def extract_pdf_bytes(data: bytes) -> str:
+    """Extract text from in-memory PDF bytes (downloaded open-access PDFs)."""
+    with pymupdf.open(stream=data, filetype="pdf") as doc:  # type: ignore[no-untyped-call]
+        return "\n".join(page.get_text() for page in doc)
+
+
 class PlainTextExtractor:
     """Passthrough for .txt / .md sources (FR-1.3)."""
 

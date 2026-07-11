@@ -303,3 +303,28 @@ class TestMergeFieldRetention:
         merged = repo.get_source(manual.source.id)
         assert merged.reading_status == ReadingStatus.READ
         assert merged.notes == "great related work section"
+
+
+class TestIngestFetchedFullText:
+    def test_full_text_stored_instead_of_abstract(self, repo, service):
+        result = service.ingest_fetched(META, full_text="the complete paper body")
+        stored = repo.get_source_text(result.source.id)
+        assert stored.text == "the complete paper body"
+        assert stored.extraction_method == "pdf-download"
+
+    def test_empty_full_text_falls_back_to_abstract(self, repo, service):
+        result = service.ingest_fetched(META, full_text="")
+        stored = repo.get_source_text(result.source.id)
+        assert stored.text == META.abstract
+        assert stored.extraction_method == "abstract"
+
+    def test_merge_offers_full_text_when_existing_has_none(self, repo, service):
+        service.ingest_document(
+            title="Attention Is All You Need", text="", extraction_method="plaintext"
+        )
+        result = service.ingest_fetched(
+            META, on_duplicate="merge", full_text="full body from OA pdf"
+        )
+        stored = repo.get_source_text(result.source.id)
+        assert stored.text == "full body from OA pdf"
+        assert stored.extraction_method == "pdf-download"

@@ -20,6 +20,7 @@ from mustrum.core.models import (
     ContactKind,
     ContactLink,
     EntityKind,
+    FetchedMetadata,
     IdeaRelation,
     Match,
     MatchStatus,
@@ -172,17 +173,57 @@ def ingest_folder(
         raise typer.Exit(code=1)
 
 
-def _ingest_fetched(identifier: str, fetcher: MetadataFetcher, on_duplicate: str) -> None:
+def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> str:
+    """Try to download and extract an open-access PDF; '' means fall back to
+    the abstract (paywalled, no OA copy, or extraction failed)."""
+    from mustrum.adapters.oa import OpenAccessClient, arxiv_pdf_url
+    from mustrum.adapters.pdf import extract_pdf_bytes
+
+    try:
+        if meta.arxiv_id:
+            client = OpenAccessClient(email="unused@arxiv")  # arXiv needs no Unpaywall
+            url = arxiv_pdf_url(meta.arxiv_id)
+        else:
+            if not ctx.config.unpaywall_email:
+                typer.secho(
+                    "no unpaywall_email configured — storing abstract only "
+                    "(set it in ~/.config/mustrum/config.toml for OA PDF lookup)",
+                    fg=typer.colors.YELLOW,
+                )
+                return ""
+            assert meta.doi is not None
+            client = OpenAccessClient(email=ctx.config.unpaywall_email)
+            found = client.find_pdf_url(meta.doi)
+            if found is None:
+                typer.secho(
+                    "no open-access PDF found — storing abstract only",
+                    fg=typer.colors.YELLOW,
+                )
+                return ""
+            url = found
+        text = extract_pdf_bytes(client.download_pdf(url))
+        typer.echo(f"fetched full text from {url}")
+        return text
+    except Exception as exc:
+        typer.secho(f"PDF fetch failed ({exc}) — storing abstract only", fg=typer.colors.YELLOW)
+        return ""
+
+
+def _ingest_fetched(
+    identifier: str, fetcher: MetadataFetcher, on_duplicate: str, fetch_pdf: bool
+) -> None:
     ctx = _context()
     try:
         meta = fetcher.fetch(identifier)
     except (LookupError, ValueError) as exc:
         _fail(str(exc))
         return
+    full_text = _fetch_full_text(ctx, meta) if fetch_pdf else ""
     try:
         result = IngestService(ctx.repo, ctx.embedder).ingest_fetched(
             meta,
             on_duplicate=on_duplicate,  # type: ignore[arg-type]
+            full_text=full_text,
         )
     except DuplicateSourceError as exc:
         _fail(f"{exc}\nUse --on-duplicate skip|merge to resolve.")
@@ -201,19 +242,30 @@ def _ingest_fetched(identifier: str, fetcher: MetadataFetcher, on_duplicate: str
 
 
 @ingest_app.command("arxiv")
-def ingest_arxiv(arxiv_id: str, on_duplicate: DupOption = "fail") -> None:
-    """Fetch authoritative metadata + BibTeX for an arXiv id."""
+def ingest_arxiv(
+    arxiv_id: str,
+    on_duplicate: DupOption = "fail",
+    pdf: Annotated[bool, typer.Option(help="Also download the PDF full text.")] = True,
+) -> None:
+    """Fetch authoritative metadata + BibTeX for an arXiv id (and its PDF)."""
     from mustrum.adapters.arxiv import ArxivFetcher
 
-    _ingest_fetched(arxiv_id, ArxivFetcher(), on_duplicate)
+    _ingest_fetched(arxiv_id, ArxivFetcher(), on_duplicate, fetch_pdf=pdf)
 
 
 @ingest_app.command("doi")
-def ingest_doi(doi: str, on_duplicate: DupOption = "fail") -> None:
-    """Fetch authoritative metadata + BibTeX for a DOI via Crossref."""
+def ingest_doi(
+    doi: str,
+    on_duplicate: DupOption = "fail",
+    pdf: Annotated[
+        bool, typer.Option(help="Look up + download an open-access PDF via Unpaywall.")
+    ] = True,
+) -> None:
+    """Fetch authoritative metadata + BibTeX for a DOI via Crossref, plus the
+    full-text PDF when a legal open-access copy exists (Unpaywall)."""
     from mustrum.adapters.crossref import CrossrefFetcher
 
-    _ingest_fetched(doi, CrossrefFetcher(), on_duplicate)
+    _ingest_fetched(doi, CrossrefFetcher(), on_duplicate, fetch_pdf=pdf)
 
 
 # -- sources ---------------------------------------------------------------------

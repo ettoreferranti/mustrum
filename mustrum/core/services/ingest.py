@@ -87,8 +87,14 @@ class IngestService:
         meta: FetchedMetadata,
         kind: SourceKind = SourceKind.PAPER,
         on_duplicate: OnDuplicate = "fail",
+        full_text: str = "",
+        full_text_method: str = "pdf-download",
     ) -> IngestResult:
-        """Ingest from authoritative metadata (arXiv / Crossref), FR-1.2."""
+        """Ingest from authoritative metadata (arXiv / Crossref), FR-1.2.
+
+        When the caller obtained the paper's full text (e.g. an open-access
+        PDF), pass it as `full_text`; it is stored instead of the abstract.
+        """
         provenance = tuple(
             (field, FieldOrigin.FETCHED)
             for field, value in (
@@ -109,17 +115,17 @@ class IngestService:
             arxiv_id=meta.arxiv_id,
             provenance=provenance,
         )
+        text = full_text or meta.abstract
+        method = full_text_method if full_text else "abstract"
         duplicate = self._find_duplicate(source)
         if duplicate is not None:
-            result = self._handle_duplicate(
-                source, meta.abstract, "abstract", *duplicate, on_duplicate
-            )
+            result = self._handle_duplicate(source, text, method, *duplicate, on_duplicate)
             if result.merged and self._repo.get_bib_entry(result.source.id) is None:  # type: ignore[arg-type]
                 self._attach_fetched_bib(result.source, meta.raw_bibtex)
             return result
         saved = self._repo.add_source(source)
-        if meta.abstract:
-            self._attach_text(saved, meta.abstract, "abstract")
+        if text:
+            self._attach_text(saved, text, method)
         self._attach_fetched_bib(saved, meta.raw_bibtex)
         return IngestResult(source=saved, created=True)
 

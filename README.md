@@ -23,8 +23,8 @@ uv sync                                   # install
 uv run mustrum --help
 
 # build the library
-uv run mustrum ingest arxiv 1706.03762    # authoritative metadata + BibTeX
-uv run mustrum ingest doi 10.1109/CVPR.2016.90
+uv run mustrum ingest arxiv 1706.03762    # metadata + BibTeX + full-text PDF
+uv run mustrum ingest doi 10.1371/journal.pcbi.1003285   # + OA PDF via Unpaywall
 uv run mustrum ingest file paper.pdf --title "..." --author "..." --year 2024
 uv run mustrum ingest folder ~/papers -r   # batch-import every PDF; re-run safe
 uv run mustrum summarise 1                # grounded, verified summary
@@ -49,7 +49,9 @@ uv run mustrum contact add "Prof X" --kind university --affiliation "ZHAW"
 ```
 
 Data lives in `~/.mustrum/mustrum.db` (override with `MUSTRUM_DB` or
-`~/.config/mustrum/config.toml`).
+`~/.config/mustrum/config.toml`). Set `unpaywall_email = "you@example.org"`
+in the config to enable open-access PDF lookup for DOI ingestion (paywalled
+papers fall back to their abstract).
 
 ## Status
 

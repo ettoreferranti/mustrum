@@ -63,3 +63,14 @@ immutability triggers; and everything derived from the old text is
 invalidated in the same operation — the summary is deleted and embeddings are
 recomputed — so no stored claim ever remains grounded against text that is
 gone. Arbitrary edits to source texts remain impossible.
+
+## ADR-10 — Typographic normalisation in grounding (2026-07-11, accepted)
+Refines ADR-7's "verbatim". Publisher PDFs contain typographic glyphs (curly
+quotes/apostrophes, en/em dashes, ligatures, non-breaking spaces, soft
+hyphens) that LLMs faithfully reproduce as ASCII; strict byte comparison
+rejected genuinely identical wording. GroundingVerifier now compares under
+Unicode NFKC plus an explicit quote/dash fold (both sides normalised
+identically). Wording, casing, digits, and word order remain strict — the
+fold cannot mask invented content, only glyph variance introduced by PDF
+extraction. Motivating case: a Springer paper whose correct quotes failed on
+' vs ' and – vs -.

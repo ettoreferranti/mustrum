@@ -118,8 +118,9 @@ an adapter.
 The anti-hallucination guarantees live in two small, heavily-tested classes:
 
 1. **GroundingVerifier** — takes model output that includes evidence quotes
-   and the stored `SourceText`; verifies each quote occurs verbatim
-   (whitespace-normalised, case- and punctuation-sensitive) in the text.
+   and the stored `SourceText`; verifies each quote occurs verbatim in the
+   text, compared under whitespace + typographic normalisation (Unicode NFKC
+   and quote/dash folding, ADR-10); wording, case, and digits stay strict.
    Zero usable quotes is itself a failure (`empty_evidence`) — claims without
    evidence are rejected. Failure ⇒ the artefact is rejected and reported;
    nothing partial is stored.

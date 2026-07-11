@@ -3,9 +3,13 @@
 Model output is untrusted input. Nothing citation-bearing is stored or
 emitted unless it passes these checks:
 
-- GroundingVerifier: every evidence quote must occur verbatim
-  (whitespace-normalised, case-sensitive) in the stored source text, and
-  there must be at least one quote — claims without evidence fail.
+- GroundingVerifier: every evidence quote must occur verbatim in the stored
+  source text, and there must be at least one quote — claims without evidence
+  fail. "Verbatim" is whitespace- and typography-normalised (Unicode NFKC
+  plus quote/dash folding, see _normalize): publisher PDFs use curly quotes,
+  ligatures, and typographic dashes that models reproduce as ASCII, and that
+  glyph-level variance must not mask genuinely identical wording. Case and
+  the words themselves remain strict.
 - CitationVerifier: every citation key used in generated text must exist in
   the database's key set. Supports LaTeX (`\\cite{...}` and biblatex/natbib
   variants) and pandoc-Markdown (`[@key]`, `@key`) citations.
@@ -17,13 +21,36 @@ never repair it silently.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence, Set
 from dataclasses import dataclass
 
+# typographic variants folded to ASCII before comparison; NFKC handles
+# ligatures (ﬁ→fi) and non-breaking spaces but not quotes/dashes
+_TYPOGRAPHY = str.maketrans(
+    {
+        "‘": "'",  # ‘
+        "’": "'",  # ’
+        "‚": "'",  # ‚
+        "‛": "'",  # ‛
+        "“": '"',  # “
+        "”": '"',  # ”
+        "„": '"',  # „
+        "‐": "-",  # ‐ hyphen
+        "‑": "-",  # ‑ non-breaking hyphen
+        "‒": "-",  # ‒ figure dash
+        "–": "-",  # – en dash
+        "—": "-",  # — em dash
+        "−": "-",  # − minus sign
+        "­": None,  # soft hyphen: drop entirely
+    }
+)
 
-def _normalize_ws(text: str) -> str:
-    """Collapse all whitespace runs (spaces, newlines, tabs) to single spaces."""
-    return " ".join(text.split())
+
+def _normalize(text: str) -> str:
+    """Whitespace + typography normalisation (see module docstring)."""
+    folded = unicodedata.normalize("NFKC", text).translate(_TYPOGRAPHY)
+    return " ".join(folded.split())
 
 
 @dataclass(frozen=True)
@@ -44,11 +71,11 @@ class GroundingVerifier:
     """Checks that evidence quotes actually appear in the source text."""
 
     def verify(self, quotes: Sequence[str], source_text: str) -> GroundingResult:
-        usable = [q for q in quotes if _normalize_ws(q)]
+        usable = [q for q in quotes if _normalize(q)]
         if not usable:
             return GroundingResult(ok=False, missing_quotes=(), empty_evidence=True)
-        haystack = _normalize_ws(source_text)
-        missing = tuple(q for q in usable if _normalize_ws(q) not in haystack)
+        haystack = _normalize(source_text)
+        missing = tuple(q for q in usable if _normalize(q) not in haystack)
         return GroundingResult(ok=not missing, missing_quotes=missing, empty_evidence=False)
 
 

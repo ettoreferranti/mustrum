@@ -194,3 +194,56 @@ class TestCitationVerify:
         result = self.v.verify("plain prose", set())
         assert result.ok is True
         assert result.used_keys == ()
+
+
+class TestTypographyNormalisation:
+    """Publisher PDFs use typographic glyphs; models answer in ASCII. The
+    grounding check must fold those — and nothing else."""
+
+    def setup_method(self):
+        self.v = GroundingVerifier()
+
+    def _grounded(self, quote, source):
+        return self.v.verify([quote], source).ok
+
+    def test_curly_apostrophe_in_source(self):
+        assert self._grounded("the subjects' precision", "the subjects’ precision")
+
+    def test_curly_apostrophe_in_quote(self):
+        assert self._grounded("the subjects’ precision", "the subjects' precision")
+
+    def test_single_quote_variants(self):
+        for glyph in "‘’‚‛":
+            assert self._grounded("it's fine", f"it{glyph}s fine"), repr(glyph)
+
+    def test_double_quote_variants(self):
+        for glyph_pair in ["“”", "„“"]:
+            source = f"they said {glyph_pair[0]}yes{glyph_pair[1]} loudly"
+            assert self._grounded('they said "yes" loudly', source), repr(glyph_pair)
+
+    def test_dash_variants(self):
+        for glyph in "‐‑‒–—−":
+            assert self._grounded("state-of-the-art", f"state{glyph}of{glyph}the{glyph}art"), repr(
+                glyph
+            )
+
+    def test_soft_hyphen_dropped(self):
+        assert self._grounded("discovery", "discov­ery")
+
+    def test_ligatures_folded_by_nfkc(self):
+        assert self._grounded("efficient classification", "eﬃcient classiﬁcation")
+
+    def test_non_breaking_space(self):
+        assert self._grounded("7 percent", "7 percent")
+
+    def test_wording_changes_still_fail(self):
+        assert not self._grounded("median precision increased", "median precision rose")
+
+    def test_missing_words_still_fail(self):
+        assert not self._grounded("precision increased greatly", "precision increased")
+
+    def test_case_still_strict(self):
+        assert not self._grounded("Median Precision", "median precision")
+
+    def test_digits_still_strict(self):
+        assert not self._grounded("recall of 7%", "recall of 8%")

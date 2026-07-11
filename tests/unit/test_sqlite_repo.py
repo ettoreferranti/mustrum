@@ -411,8 +411,10 @@ class TestSearch:
         assert (hits[0].entity, hits[0].ref_id) == (EntityKind.IDEA, idea.id)
 
     def test_finds_contact_by_affiliation(self, repo):
-        c = repo.add_contact(Contact(name="N", kind=ContactKind.PERSON, affiliation="ZHAW"))
-        hits = repo.search("zhaw")
+        c = repo.add_contact(
+            Contact(name="N", kind=ContactKind.PERSON, affiliation="Unseen University")
+        )
+        hits = repo.search("unseen")
         assert (hits[0].entity, hits[0].ref_id) == (EntityKind.CONTACT, c.id)
 
     def test_multiword_query_is_anded(self, repo):

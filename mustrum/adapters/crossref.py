@@ -36,6 +36,13 @@ class CrossrefFetcher:
         if date_parts[0]:
             year = int(date_parts[0][0])
         abstract = " ".join(work.get("abstract", "").split())
+        # publisher text-mining links: downloadable where the network has access
+        pdf_urls = tuple(
+            link["URL"]
+            for link in work.get("link", [])
+            if isinstance(link.get("URL"), str)
+            and link.get("content-type") in ("application/pdf", "unspecified")
+        )
 
         bib_response = self._client.get(
             f"https://doi.org/{doi}", headers={"Accept": "application/x-bibtex"}
@@ -55,4 +62,5 @@ class CrossrefFetcher:
             arxiv_id=None,
             raw_bibtex=raw_bibtex,
             abstract=abstract,
+            pdf_urls=pdf_urls,
         )

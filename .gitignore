@@ -20,3 +20,7 @@ mutants/
 
 # OS
 .DS_Store
+
+# generated artefacts (contain the user's library data — never commit)
+mustrum-graph.html
+*.bib

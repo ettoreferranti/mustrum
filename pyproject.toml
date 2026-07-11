@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Local-first personal knowledge repository for academic research"
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "Ettore Ferranti", email = "ettore@ettoreferranti.ch" }]
+authors = [{ name = "Ettore Ferranti" }]
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",

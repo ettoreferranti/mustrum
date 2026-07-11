@@ -21,6 +21,13 @@ citations + contacts). Python, hexagonal architecture, local-first.
    `EmbeddingProvider` ports (Ollama now, Anthropic later, fakes in tests).
 7. Default test suite must pass offline with no Ollama running (fake
    providers); Ollama/network integration tests behind pytest markers.
+8. **Privacy — this repo is public.** Never commit personal data: no real
+   e-mail addresses, affiliations, or machine paths; user settings live only
+   in `~/.config/mustrum/config.toml`. Generated artefacts (graph HTML, .bib
+   exports, .db files) contain the user's library and must stay gitignored —
+   check `git status` before staging; avoid blind `git add -A` when new
+   artefact types may exist. `tests/unit/test_privacy.py` enforces the e-mail
+   and home-path bans on all tracked files.
 
 ## Key docs
 

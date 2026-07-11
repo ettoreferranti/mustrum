@@ -182,6 +182,9 @@ class FetchedMetadata:
     arxiv_id: str | None
     raw_bibtex: str
     abstract: str = ""
+    # publisher full-text links from the metadata record (Crossref TDM links);
+    # typically only downloadable on networks with subscription/IP access
+    pdf_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

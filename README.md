@@ -45,13 +45,29 @@ uv run mustrum audit draft.tex            # every \cite must exist in the librar
 # explore
 uv run mustrum graph --open               # interactive offline HTML graph
 uv run mustrum search "attention"
-uv run mustrum contact add "Prof X" --kind university --affiliation "ZHAW"
+uv run mustrum contact add "Prof X" --kind university --affiliation "Unseen University"
 ```
 
-Data lives in `~/.mustrum/mustrum.db` (override with `MUSTRUM_DB` or
-`~/.config/mustrum/config.toml`). Set `unpaywall_email = "you@example.org"`
-in the config to enable open-access PDF lookup for DOI ingestion (paywalled
-papers fall back to their abstract).
+## Configuration & syncing (iCloud / OneDrive)
+
+Your entire library — sources, verbatim texts, summaries, ideas, matches,
+BibTeX, contacts, embeddings — lives in **one SQLite file**
+(`~/.mustrum/mustrum.db` by default). Run `mustrum config --init` to create a
+commented config template at `~/.config/mustrum/config.toml`, then point
+`db_path` into a synced folder to keep the library in the cloud:
+
+```toml
+db_path = "~/Library/Mobile Documents/com~apple~CloudDocs/mustrum/mustrum.db"  # iCloud
+# db_path = "~/OneDrive/mustrum/mustrum.db"
+unpaywall_email = "you@example.org"   # enables open-access PDF lookup by DOI
+```
+
+`mustrum config` shows the effective settings; `MUSTRUM_DB` overrides the
+path per invocation. Two rules for synced libraries: never run mustrum on two
+machines against the same file simultaneously, and let the sync client finish
+before switching machines. The config file (and your e-mail in it) stays on
+your machine — nothing personal is ever part of this repository, enforced by
+`tests/unit/test_privacy.py`.
 
 ## Status
 

@@ -174,39 +174,46 @@ def ingest_folder(
 
 
 def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> str:
-    """Try to download and extract an open-access PDF; '' means fall back to
-    the abstract (paywalled, no OA copy, or extraction failed)."""
+    """Download and extract the paper's PDF if any candidate URL works.
+
+    Candidates, in order: arXiv (always open), an Unpaywall open-access copy,
+    then the publisher's Crossref full-text links — the last succeed only on
+    networks with subscription access (e.g. a university network). '' means
+    fall back to the abstract.
+    """
     from mustrum.adapters.oa import OpenAccessClient, arxiv_pdf_url
     from mustrum.adapters.pdf import extract_pdf_bytes
 
-    try:
-        if meta.arxiv_id:
-            client = OpenAccessClient(email="unused@arxiv")  # arXiv needs no Unpaywall
-            url = arxiv_pdf_url(meta.arxiv_id)
+    client = OpenAccessClient(email=ctx.config.unpaywall_email or "unused@localhost")
+    candidates: list[str] = []
+    if meta.arxiv_id:
+        candidates.append(arxiv_pdf_url(meta.arxiv_id))
+    if meta.doi and not meta.arxiv_id:
+        if ctx.config.unpaywall_email:
+            try:
+                if found := client.find_pdf_url(meta.doi):
+                    candidates.append(found)
+            except Exception as exc:
+                typer.secho(f"Unpaywall lookup failed ({exc})", fg=typer.colors.YELLOW)
         else:
-            if not ctx.config.unpaywall_email:
-                typer.secho(
-                    "no unpaywall_email configured — storing abstract only "
-                    "(set it in ~/.config/mustrum/config.toml for OA PDF lookup)",
-                    fg=typer.colors.YELLOW,
-                )
-                return ""
-            assert meta.doi is not None
-            client = OpenAccessClient(email=ctx.config.unpaywall_email)
-            found = client.find_pdf_url(meta.doi)
-            if found is None:
-                typer.secho(
-                    "no open-access PDF found — storing abstract only",
-                    fg=typer.colors.YELLOW,
-                )
-                return ""
-            url = found
-        text = extract_pdf_bytes(client.download_pdf(url))
+            typer.secho(
+                "no unpaywall_email configured — skipping open-access lookup "
+                "(set it in ~/.config/mustrum/config.toml)",
+                fg=typer.colors.YELLOW,
+            )
+    candidates.extend(meta.pdf_urls)
+
+    for url in candidates:
+        try:
+            text = extract_pdf_bytes(client.download_pdf(url))
+        except Exception as exc:
+            typer.secho(f"PDF fetch failed from {url} ({exc})", fg=typer.colors.YELLOW)
+            continue
         typer.echo(f"fetched full text from {url}")
         return text
-    except Exception as exc:
-        typer.secho(f"PDF fetch failed ({exc}) — storing abstract only", fg=typer.colors.YELLOW)
-        return ""
+    if candidates or meta.doi:
+        typer.secho("no downloadable PDF — storing abstract only", fg=typer.colors.YELLOW)
+    return ""
 
 
 def _ingest_fetched(
@@ -643,6 +650,62 @@ def graph(
     typer.echo(f"wrote {out}")
     if open_browser:
         webbrowser.open(out.resolve().as_uri())
+
+
+_CONFIG_TEMPLATE = """\
+# Mustrum configuration — local to this machine, never part of any repo.
+
+# Your ENTIRE library (sources, texts, summaries, ideas, matches, BibTeX,
+# contacts, embeddings) lives in one SQLite file. Point db_path into a synced
+# folder to keep it in iCloud or OneDrive, e.g.:
+#   db_path = "~/Library/Mobile Documents/com~apple~CloudDocs/mustrum/mustrum.db"
+#   db_path = "~/OneDrive/mustrum/mustrum.db"
+# Never run mustrum from two machines against the same synced file at once.
+#db_path = "~/.mustrum/mustrum.db"
+
+#ollama_url = "http://localhost:11434"
+#llm_model = "qwen3:30b"
+#embed_model = "nomic-embed-text"
+#max_source_chars = 16000
+#num_ctx = 16384
+
+# Contact e-mail for the Unpaywall API — enables open-access PDF download
+# when ingesting by DOI. Stays on this machine.
+#unpaywall_email = "you@example.org"
+"""
+
+
+@app.command("config")
+def config_cmd(
+    init: Annotated[
+        bool, typer.Option("--init", help="Write a commented template config file.")
+    ] = False,
+    path: Annotated[
+        Path | None, typer.Option("--path", help="Config file location (default: standard path).")
+    ] = None,
+) -> None:
+    """Show the effective configuration (or create a template with --init)."""
+    from mustrum.config import DEFAULT_CONFIG_PATH
+
+    config_path = path or DEFAULT_CONFIG_PATH
+    if init:
+        if config_path.exists():
+            _fail(f"{config_path} already exists — edit it directly")
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(_CONFIG_TEMPLATE)
+        typer.echo(f"wrote {config_path}")
+        return
+    config = load_config(path)
+    typer.echo(
+        f"config file:      {config_path} ({'present' if config_path.is_file() else 'absent — defaults in effect'})"
+    )
+    typer.echo(f"db_path:          {config.db_path}")
+    typer.echo(f"ollama_url:       {config.ollama_url}")
+    typer.echo(f"llm_model:        {config.llm_model}")
+    typer.echo(f"embed_model:      {config.embed_model}")
+    typer.echo(f"max_source_chars: {config.max_source_chars}")
+    typer.echo(f"num_ctx:          {config.num_ctx}")
+    typer.echo(f"unpaywall_email:  {config.unpaywall_email or '(unset — OA PDF lookup disabled)'}")
 
 
 @app.command("search")

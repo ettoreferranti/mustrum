@@ -119,3 +119,27 @@ class TestCrossrefFetcher:
         client = crossref_client(json_body={"message": {"title": []}})
         with pytest.raises(LookupError, match="title"):
             CrossrefFetcher(client=client).fetch("10.1/x")
+
+
+class TestCrossrefPdfLinks:
+    def test_pdf_links_extracted(self):
+        body = {
+            "message": {
+                **CROSSREF_JSON["message"],
+                "link": [
+                    {"URL": "https://publisher.example/tdm.pdf", "content-type": "application/pdf"},
+                    {"URL": "https://publisher.example/page", "content-type": "text/html"},
+                    {"URL": "https://publisher.example/any", "content-type": "unspecified"},
+                    {"content-type": "application/pdf"},
+                ],
+            }
+        }
+        meta = CrossrefFetcher(client=crossref_client(json_body=body)).fetch("10.1/x")
+        assert meta.pdf_urls == (
+            "https://publisher.example/tdm.pdf",
+            "https://publisher.example/any",
+        )
+
+    def test_no_links_gives_empty_tuple(self):
+        meta = CrossrefFetcher(client=crossref_client()).fetch("10.1/x")
+        assert meta.pdf_urls == ()

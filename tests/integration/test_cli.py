@@ -130,10 +130,18 @@ class TestGraphAndContacts:
     def test_contact_add_link_and_graph(self, note, tmp_path):
         invoke("ingest", "file", str(note), "--title", "S")
         invoke("idea", "new", "i", "text about molecules and graphs")
-        invoke("contact", "add", "ZHAW InIT", "--kind", "university", "--affiliation", "Zurich")
+        invoke(
+            "contact",
+            "add",
+            "Unseen University",
+            "--kind",
+            "university",
+            "--affiliation",
+            "Ankh-Morpork",
+        )
         invoke("contact", "link", "1", "--idea", "1", "--why", "potential collaboration")
         out = invoke("contact", "list")
-        assert "ZHAW InIT (university) — Zurich" in out
+        assert "Unseen University (university) — Ankh-Morpork" in out
         graph_file = tmp_path / "g.html"
         out = invoke("graph", "-o", str(graph_file))
         page = graph_file.read_text()
@@ -262,3 +270,27 @@ class TestSummariseAll:
     def test_id_and_all_are_mutually_exclusive(self):
         invoke("summarise", expect_exit=1)
         invoke("summarise", "1", "--all", expect_exit=1)
+
+
+class TestConfigCommand:
+    def test_show_defaults(self, tmp_path):
+        out = invoke("config", "--path", str(tmp_path / "absent.toml"))
+        assert "defaults in effect" in out
+        assert "qwen3:30b" in out
+        assert "OA PDF lookup disabled" in out
+
+    def test_init_writes_template_then_show_reads_it(self, tmp_path):
+        target = tmp_path / "config.toml"
+        out = invoke("config", "--init", "--path", str(target))
+        assert str(target) in out
+        content = target.read_text()
+        assert "db_path" in content and "iCloud" in content and "OneDrive" in content
+        # activate a value and confirm the effective config reflects it
+        target.write_text('llm_model = "llama3.1:8b"\n')
+        assert "llama3.1:8b" in invoke("config", "--path", str(target))
+
+    def test_init_refuses_to_overwrite(self, tmp_path):
+        target = tmp_path / "config.toml"
+        target.write_text("# mine")
+        invoke("config", "--init", "--path", str(target), expect_exit=1)
+        assert target.read_text() == "# mine"

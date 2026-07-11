@@ -13,10 +13,15 @@ from collections.abc import Sequence
 
 
 class FakeLLMProvider:
-    """Replays queued responses in order; records every prompt it was given."""
+    """Replays queued responses in order; records every prompt it was given.
 
-    def __init__(self, responses: Sequence[str] = ()) -> None:
+    With `default_response` set, an exhausted queue returns that instead of
+    raising — used by the CLI test hook for batch commands.
+    """
+
+    def __init__(self, responses: Sequence[str] = (), default_response: str | None = None) -> None:
         self._responses = list(responses)
+        self._default = default_response
         self.calls: list[tuple[str, str | None]] = []
 
     @property
@@ -28,9 +33,11 @@ class FakeLLMProvider:
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
         self.calls.append((prompt, system))
-        if not self._responses:
-            raise RuntimeError("FakeLLMProvider has no queued response left")
-        return self._responses.pop(0)
+        if self._responses:
+            return self._responses.pop(0)
+        if self._default is not None:
+            return self._default
+        raise RuntimeError("FakeLLMProvider has no queued response left")
 
 
 class FakeEmbeddingProvider:

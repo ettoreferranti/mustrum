@@ -28,6 +28,7 @@ uv run mustrum ingest doi 10.1109/CVPR.2016.90
 uv run mustrum ingest file paper.pdf --title "..." --author "..." --year 2024
 uv run mustrum ingest folder ~/papers -r   # batch-import every PDF; re-run safe
 uv run mustrum summarise 1                # grounded, verified summary
+uv run mustrum summarise --all             # every source still lacking one
 
 # ideas and matching
 uv run mustrum idea new "My idea" "one-paragraph description"

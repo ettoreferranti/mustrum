@@ -61,7 +61,10 @@ def _context() -> Context:
     config.db_path.parent.mkdir(parents=True, exist_ok=True)
     repo = SqliteRepo(config.db_path)
     if os.environ.get("MUSTRUM_FAKE_PROVIDERS"):  # offline test hook
-        return Context(config, repo, FakeEmbeddingProvider(), FakeLLMProvider())
+        canned = os.environ.get("MUSTRUM_FAKE_LLM_RESPONSE")
+        return Context(
+            config, repo, FakeEmbeddingProvider(), FakeLLMProvider(default_response=canned)
+        )
     return Context(
         config,
         repo,
@@ -460,24 +463,62 @@ def gaps() -> None:
 
 @app.command("summarise")
 def summarise(
-    source_id: int,
+    source_id: Annotated[int | None, typer.Argument()] = None,
+    all_sources: Annotated[bool, typer.Option("--all", help="Every source lacking one.")] = False,
     force: Annotated[bool, typer.Option("--force")] = False,
     override: Annotated[str | None, typer.Option(help="Store a hand-written summary.")] = None,
 ) -> None:
-    """Generate a grounded, verified summary of a source (or store your own)."""
+    """Generate a grounded, verified summary of a source (or store your own).
+
+    With --all, summarise every source that has text but no summary yet;
+    grounding failures are reported and skipped, never stored.
+    """
+    if all_sources == (source_id is not None):
+        _fail("give either a SOURCE_ID or --all")
+    if all_sources and override is not None:
+        _fail("--override needs a specific SOURCE_ID")
     ctx = _context()
     service = SummariseService(ctx.repo, ctx.llm, max_source_chars=ctx.config.max_source_chars)
-    try:
-        if override is not None:
-            summary = service.override(source_id, override)
-        else:
-            summary = service.summarise(source_id, force=force)
-    except (KeyError, LookupError, GroundingFailure) as exc:
-        _fail(str(exc))
+    if not all_sources:
+        assert source_id is not None
+        try:
+            if override is not None:
+                summary = service.override(source_id, override)
+            else:
+                summary = service.summarise(source_id, force=force)
+        except (KeyError, LookupError, GroundingFailure) as exc:
+            _fail(str(exc))
+            return
+        typer.echo(summary.text)
+        for quote in summary.evidence:
+            typer.echo(f'  evidence: "{quote}"')
         return
-    typer.echo(summary.text)
-    for quote in summary.evidence:
-        typer.echo(f'  evidence: "{quote}"')
+
+    done = skipped = failed = 0
+    for source in ctx.repo.list_sources():
+        assert source.id is not None
+        if ctx.repo.get_summary(source.id) is not None and not force:
+            skipped += 1
+            continue
+        if ctx.repo.get_source_text(source.id) is None:
+            typer.echo(f"no text stored: [{source.id}] {source.title}")
+            skipped += 1
+            continue
+        try:
+            service.summarise(source.id, force=force)
+        except GroundingFailure as exc:
+            typer.secho(
+                f"grounding failed: [{source.id}] {source.title}: {exc}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            failed += 1
+            continue
+        done += 1
+        typer.echo(f"summarised [{source.id}] {source.title}")
+    typer.echo(f"done: {done} summarised, {skipped} skipped, {failed} failed")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command("bib")

@@ -219,3 +219,46 @@ class TestIngestFolder:
         folder = tmp_path / "empty"
         folder.mkdir()
         assert "no PDFs found" in invoke("ingest", "folder", str(folder))
+
+
+class TestSummariseAll:
+    def _reply(self, quote):
+        import json
+
+        return json.dumps({"summary": "Grounded batch summary.", "quotes": [quote]})
+
+    def test_summarises_missing_then_skips_done(self, tmp_path, monkeypatch):
+        a = tmp_path / "a.md"
+        a.write_text("shared corpus phrase in paper alpha")
+        b = tmp_path / "b.md"
+        b.write_text("shared corpus phrase in paper beta")
+        invoke("ingest", "file", str(a), "--title", "Alpha")
+        invoke("ingest", "file", str(b), "--title", "Beta")
+        monkeypatch.setenv("MUSTRUM_FAKE_LLM_RESPONSE", self._reply("shared corpus phrase"))
+        out = invoke("summarise", "--all")
+        assert "summarised [1] Alpha" in out and "summarised [2] Beta" in out
+        assert "2 summarised, 0 skipped, 0 failed" in out
+        out = invoke("summarise", "--all")
+        assert "0 summarised, 2 skipped, 0 failed" in out
+
+    def test_grounding_failure_reported_not_stored(self, tmp_path, monkeypatch):
+        f = tmp_path / "a.md"
+        f.write_text("actual source content")
+        invoke("ingest", "file", str(f), "--title", "Alpha")
+        monkeypatch.setenv("MUSTRUM_FAKE_LLM_RESPONSE", self._reply("fabricated quote"))
+        out = invoke("summarise", "--all", expect_exit=1)
+        assert "0 summarised, 0 skipped, 1 failed" in out
+        assert "summary" not in invoke("source", "show", "1")
+
+    def test_source_without_text_skipped(self, tmp_path, monkeypatch):
+        empty = tmp_path / "empty.md"
+        empty.write_text("")
+        invoke("ingest", "file", str(empty), "--title", "Metadata Only")
+        monkeypatch.setenv("MUSTRUM_FAKE_LLM_RESPONSE", self._reply("x"))
+        out = invoke("summarise", "--all")
+        assert "no text stored: [1] Metadata Only" in out
+        assert "0 summarised, 1 skipped, 0 failed" in out
+
+    def test_id_and_all_are_mutually_exclusive(self):
+        invoke("summarise", expect_exit=1)
+        invoke("summarise", "1", "--all", expect_exit=1)

@@ -77,3 +77,18 @@ class TestFakeEmbeddingProvider:
     def test_respects_dims(self):
         (vec,) = FakeEmbeddingProvider(dims=8).embed(["x"])
         assert len(vec) == 8
+
+
+class TestFakeLLMDefaultResponse:
+    def test_queue_takes_priority_over_default(self):
+        fake = FakeLLMProvider(["queued"], default_response="fallback")
+        assert fake.generate("p") == "queued"
+        assert fake.generate("p") == "fallback"
+
+    def test_default_repeats_indefinitely(self):
+        fake = FakeLLMProvider(default_response="always")
+        assert [fake.generate("p") for _ in range(3)] == ["always"] * 3
+
+    def test_no_default_still_raises_when_exhausted(self):
+        with pytest.raises(RuntimeError):
+            FakeLLMProvider().generate("p")

@@ -39,6 +39,7 @@ stories at the bottom of the relevant epic.
 | E3-1 | Ollama adapter: LLMProvider + EmbeddingProvider, model names in config (defaults per ADR-8: nomic-embed-text / qwen3:30b) | M | done |
 | E3-2 | GroundingVerifier + CitationVerifier (`core/verify.py`) — 100% mutant review | M | done |
 | E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | done |
+| E3-4 | Batch summarisation (`summarise --all`): only sources lacking a summary, grounding failures skipped and reported | S | done |
 
 ### E4 Matching
 | ID | Story | Prio | Status |

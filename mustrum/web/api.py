@@ -133,6 +133,14 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
 
+    @app.delete("/api/sources/{source_id}")
+    async def delete_source(source_id: int) -> dict[str, Any]:
+        try:
+            repo.delete_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True}
+
     @app.post("/api/sources/{source_id}/status/{status}")
     async def set_status(source_id: int, status: str) -> dict[str, Any]:
         try:
@@ -249,6 +257,14 @@ def create_app(
     async def create_idea(payload: IdeaPayload) -> dict[str, Any]:
         idea = IdeaService(repo, embedder).create(payload.title, payload.text)
         return {"id": idea.id, "title": idea.title}
+
+    @app.delete("/api/ideas/{idea_id}")
+    async def delete_idea(idea_id: int) -> dict[str, Any]:
+        try:
+            repo.delete_idea(idea_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True}
 
     @app.post("/api/ideas/{idea_id}/revise")
     async def revise_idea(idea_id: int, payload: TextPayload) -> dict[str, Any]:

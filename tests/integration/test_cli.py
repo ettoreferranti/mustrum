@@ -434,3 +434,27 @@ class TestBrainstorm:
 
     def test_brainstorm_empty_library_fails(self):
         invoke("brainstorm", expect_exit=1)
+
+
+class TestDelete:
+    def test_source_delete_with_yes(self, note):
+        invoke("ingest", "file", str(note), "--title", "Doomed")
+        out = invoke("source", "delete", "1", "--yes")
+        assert "deleted [1] Doomed" in out
+        assert invoke("source", "list") == ""
+        assert invoke("search", "molecular") == ""
+
+    def test_source_delete_missing(self):
+        invoke("source", "delete", "9", "--yes", expect_exit=1)
+
+    def test_idea_delete_with_yes(self):
+        invoke("idea", "new", "Doomed idea", "text")
+        out = invoke("idea", "delete", "1", "--yes")
+        assert "deleted idea [1] Doomed idea" in out
+        assert invoke("idea", "list") == ""
+
+    def test_delete_without_yes_prompts_and_aborts(self, note):
+        invoke("ingest", "file", str(note), "--title", "Kept")
+        result = runner.invoke(app, ["source", "delete", "1"], input="n\n")
+        assert result.exit_code != 0
+        assert "Kept" in invoke("source", "list")

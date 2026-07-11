@@ -192,3 +192,25 @@ class TestBrainstormAndContacts:
 
     def test_bad_contact_kind_400(self, client):
         assert client.post("/api/contacts", json={"name": "X", "kind": "wizard"}).status_code == 400
+
+
+class TestDelete:
+    def test_delete_source_cascades(self, client):
+        source_id = ingest_note(client)
+        idea_id = client.post(
+            "/api/ideas", json={"title": "i", "text": "graph networks molecules"}
+        ).json()["id"]
+        client.post(f"/api/ideas/{idea_id}/suggest", json={"threshold": 0.05})
+        assert client.delete(f"/api/sources/{source_id}").status_code == 200
+        assert client.get(f"/api/sources/{source_id}").status_code == 404
+        assert client.get(f"/api/ideas/{idea_id}/matches").json() == []
+        assert client.get("/api/status").json()["sources"] == 0
+
+    def test_delete_idea(self, client):
+        idea_id = client.post("/api/ideas", json={"title": "i", "text": "t"}).json()["id"]
+        assert client.delete(f"/api/ideas/{idea_id}").status_code == 200
+        assert client.get("/api/ideas").json() == []
+
+    def test_delete_missing_404(self, client):
+        assert client.delete("/api/sources/9").status_code == 404
+        assert client.delete("/api/ideas/9").status_code == 404

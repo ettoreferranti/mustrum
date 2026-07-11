@@ -585,3 +585,95 @@ class TestMatchRationale:
     def test_set_rationale_missing_match_raises(self, repo):
         with pytest.raises(KeyError):
             repo.set_match_rationale(77, "x", ())
+
+
+class TestDeleteSource:
+    def _full_source(self, repo):
+        """A source with every kind of dependent record."""
+        s = repo.add_source(make_source())
+        repo.add_source_text(SourceText(source_id=s.id, text="body text", extraction_method="x"))
+        repo.set_summary(
+            Summary(source_id=s.id, text="sum", evidence=("body",), model="m", verified=True)
+        )
+        repo.set_bib_entry(
+            BibEntry(
+                source_id=s.id, citation_key="k1", raw_bibtex="@misc{k1,}", origin=BibOrigin.DERIVED
+            )
+        )
+        repo.tag(EntityKind.SOURCE, s.id, "t")
+        repo.store_embeddings([Embedding(EntityKind.SOURCE, s.id, 0, "m", (1.0,))])
+        idea = repo.add_idea(Idea(title="i"))
+        repo.add_match(Match(idea_id=idea.id, source_id=s.id, score=0.5))
+        c = repo.add_contact(Contact(name="C", kind=ContactKind.PERSON))
+        repo.add_contact_link(ContactLink(contact_id=c.id, why="w", source_id=s.id))
+        return s, idea, c
+
+    def test_cascade_removes_everything(self, repo):
+        s, idea, c = self._full_source(repo)
+        repo.delete_source(s.id)
+        with pytest.raises(KeyError):
+            repo.get_source(s.id)
+        assert repo.get_source_text(s.id) is None
+        assert repo.get_summary(s.id) is None
+        assert repo.get_bib_entry(s.id) is None
+        assert repo.citation_keys() == set()
+        assert repo.tags_for(EntityKind.SOURCE, s.id) == set()
+        assert repo.embeddings_for(EntityKind.SOURCE, "m") == []
+        assert repo.list_matches(idea.id) == []
+        assert repo.list_contact_links(source_id=s.id) == []
+        assert repo.search("body") == []
+        # unrelated records survive
+        assert repo.get_idea(idea.id).title == "i"
+        assert repo.get_contact(c.id).name == "C"
+
+    def test_other_sources_untouched(self, repo):
+        s, *_ = self._full_source(repo)
+        other = repo.add_source(make_source(title="Other", doi=None, arxiv_id=None))
+        repo.add_source_text(SourceText(source_id=other.id, text="keep me", extraction_method="x"))
+        repo.delete_source(s.id)
+        assert repo.get_source_text(other.id).text == "keep me"
+        assert repo.search("keep")[0].ref_id == other.id
+
+    def test_immutability_triggers_survive_deletion(self, repo):
+        s, *_ = self._full_source(repo)
+        other = repo.add_source(make_source(title="Other", doi=None, arxiv_id=None))
+        repo.add_source_text(SourceText(source_id=other.id, text="t", extraction_method="x"))
+        repo.delete_source(s.id)
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            repo._conn.execute("DELETE FROM source_texts")
+
+    def test_missing_source_raises(self, repo):
+        with pytest.raises(KeyError):
+            repo.delete_source(99)
+
+
+class TestDeleteIdea:
+    def test_cascade(self, repo):
+        idea = repo.add_idea(Idea(title="doomed"))
+        other = repo.add_idea(Idea(title="survivor"))
+        repo.add_idea_version(IdeaVersion(idea_id=idea.id, text="v1"))
+        repo.add_idea_link(
+            IdeaLink(from_idea_id=idea.id, to_idea_id=other.id, relation=IdeaRelation.RELATED)
+        )
+        repo.tag(EntityKind.IDEA, idea.id, "t")
+        repo.store_embeddings([Embedding(EntityKind.IDEA, idea.id, 0, "m", (1.0,))])
+        s = repo.add_source(make_source())
+        repo.add_match(Match(idea_id=idea.id, source_id=s.id, score=0.5))
+        c = repo.add_contact(Contact(name="C", kind=ContactKind.PERSON))
+        repo.add_contact_link(ContactLink(contact_id=c.id, why="w", idea_id=idea.id))
+
+        repo.delete_idea(idea.id)
+        with pytest.raises(KeyError):
+            repo.get_idea(idea.id)
+        assert repo.get_idea_versions(idea.id) == []
+        assert repo.list_idea_links() == []
+        assert repo.tags_for(EntityKind.IDEA, idea.id) == set()
+        assert repo.embeddings_for(EntityKind.IDEA, "m") == []
+        assert repo.list_matches(idea.id) == []
+        assert repo.list_contact_links(idea_id=idea.id) == []
+        assert repo.search("doomed") == []
+        assert repo.get_idea(other.id).title == "survivor"
+
+    def test_missing_idea_raises(self, repo):
+        with pytest.raises(KeyError):
+            repo.delete_idea(99)

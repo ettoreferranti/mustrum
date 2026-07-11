@@ -82,6 +82,7 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 |---|---|
 | `mustrum source list` / `mustrum source show <id>` | Browse the library |
 | `mustrum source attach <id> <file>` | Attach a manually-downloaded PDF to an existing source (upgrades an abstract; invalidates its summary) |
+| `mustrum source delete <id>` | Remove a source and everything attached to it (`--yes` skips the prompt) |
 | `mustrum source status <id> <unread\|skimmed\|read>` | Reading status |
 | `mustrum source tag <id> <tag>` (`--remove`) | Tags |
 | `mustrum source note <id> "<text>"` | Personal notes (searchable) |
@@ -96,6 +97,7 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 | `mustrum idea import <file.md>` | Bulk import: one idea per `# Heading` (`--on-existing skip\|revise\|create`) |
 | `mustrum idea revise <id> "<text>"` | New version; history kept forever |
 | `mustrum idea list` / `mustrum idea show <id>` (`--history`) | Browse |
+| `mustrum idea delete <id>` | Remove an idea with its history and matches (`--yes`) |
 | `mustrum idea link <from> <to> --relation <r>` | builds-on / contrasts-with / related |
 
 ### Matching

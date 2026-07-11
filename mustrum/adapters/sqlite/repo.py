@@ -189,6 +189,50 @@ class SqliteRepo:
         )
         self._conn.commit()
 
+    def delete_source(self, source_id: int) -> None:
+        """Remove a source and everything derived from or attached to it.
+
+        Full-record removal is a user right and distinct from tampering
+        (ADR-7/ADR-11): the immutability triggers on source_texts are dropped
+        and recreated around the cascade, and no dependent row survives.
+        """
+        self.get_source(source_id)
+        try:
+            self._conn.execute("DROP TRIGGER source_texts_immutable_update")
+            self._conn.execute("DROP TRIGGER source_texts_immutable_delete")
+            for statement in (
+                "DELETE FROM matches WHERE source_id = ?",
+                "DELETE FROM contact_links WHERE source_id = ?",
+                "DELETE FROM tags WHERE entity = 'source' AND ref_id = ?",
+                "DELETE FROM embeddings WHERE entity = 'source' AND ref_id = ?",
+                "DELETE FROM summaries WHERE source_id = ?",
+                "DELETE FROM bib_entries WHERE source_id = ?",
+                "DELETE FROM source_texts WHERE source_id = ?",
+                "DELETE FROM search_index WHERE entity = 'source' AND ref_id = ?",
+                "DELETE FROM sources WHERE id = ?",
+            ):
+                self._conn.execute(statement, (source_id,))
+        finally:
+            self._recreate_source_text_triggers()
+        self._conn.commit()
+
+    def delete_idea(self, idea_id: int) -> None:
+        """Remove an idea with its versions, links, matches, and tags."""
+        self.get_idea(idea_id)
+        for statement in (
+            "DELETE FROM matches WHERE idea_id = ?",
+            "DELETE FROM idea_links WHERE from_idea_id = ? OR to_idea_id = ?",
+            "DELETE FROM contact_links WHERE idea_id = ?",
+            "DELETE FROM tags WHERE entity = 'idea' AND ref_id = ?",
+            "DELETE FROM embeddings WHERE entity = 'idea' AND ref_id = ?",
+            "DELETE FROM idea_versions WHERE idea_id = ?",
+            "DELETE FROM search_index WHERE entity = 'idea' AND ref_id = ?",
+            "DELETE FROM ideas WHERE id = ?",
+        ):
+            params = (idea_id, idea_id) if statement.count("?") == 2 else (idea_id,)
+            self._conn.execute(statement, params)
+        self._conn.commit()
+
     def set_source_notes(self, source_id: int, notes: str) -> None:
         self.get_source(source_id)
         self._conn.execute("UPDATE sources SET notes = ? WHERE id = ?", (notes, source_id))
@@ -223,18 +267,21 @@ class SqliteRepo:
                 (text.source_id, text.text, text.extraction_method, _dt(text.created_at)),
             )
         finally:
-            self._conn.executescript(
-                """
-                CREATE TRIGGER IF NOT EXISTS source_texts_immutable_update
-                    BEFORE UPDATE ON source_texts
-                    BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
-                CREATE TRIGGER IF NOT EXISTS source_texts_immutable_delete
-                    BEFORE DELETE ON source_texts
-                    BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
-                """
-            )
+            self._recreate_source_text_triggers()
         self._conn.commit()
         self._reindex_source(text.source_id)
+
+    def _recreate_source_text_triggers(self) -> None:
+        self._conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS source_texts_immutable_update
+                BEFORE UPDATE ON source_texts
+                BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
+            CREATE TRIGGER IF NOT EXISTS source_texts_immutable_delete
+                BEFORE DELETE ON source_texts
+                BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
+            """
+        )
 
     def get_source_text(self, source_id: int) -> SourceText | None:
         row = self._conn.execute(

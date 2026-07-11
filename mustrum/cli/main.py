@@ -308,6 +308,30 @@ def source_attach(source_id: int, path: Path) -> None:
         )
 
 
+@source_app.command("delete")
+def source_delete(
+    source_id: int,
+    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    """Delete a source and everything attached to it (text, summary, BibTeX,
+    matches, tags, contact links). Drafts citing its key will fail audit."""
+    ctx = _context()
+    try:
+        source = ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    matches = [m for m in ctx.repo.list_matches() if m.source_id == source_id]
+    bib = ctx.repo.get_bib_entry(source_id)
+    if not yes:
+        detail = f"{len(matches)} match(es)" + (
+            f", citation key '{bib.citation_key}'" if bib else ""
+        )
+        typer.confirm(f"Delete [{source_id}] {source.title} ({detail})?", abort=True)
+    ctx.repo.delete_source(source_id)
+    typer.echo(f"deleted [{source_id}] {source.title}")
+
+
 @source_app.command("status")
 def source_status(source_id: int, status: ReadingStatus) -> None:
     ctx = _context()
@@ -390,6 +414,25 @@ def idea_revise(idea_id: int, text: str) -> None:
         return
     versions = ctx.repo.get_idea_versions(idea_id)
     typer.echo(f"idea {idea_id} now has {len(versions)} versions")
+
+
+@idea_app.command("delete")
+def idea_delete(
+    idea_id: int,
+    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    """Delete an idea with its whole version history, matches, and links."""
+    ctx = _context()
+    try:
+        idea = ctx.repo.get_idea(idea_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    if not yes:
+        versions = len(ctx.repo.get_idea_versions(idea_id))
+        typer.confirm(f"Delete idea [{idea_id}] {idea.title} ({versions} version(s))?", abort=True)
+    ctx.repo.delete_idea(idea_id)
+    typer.echo(f"deleted idea [{idea_id}] {idea.title}")
 
 
 @idea_app.command("list")

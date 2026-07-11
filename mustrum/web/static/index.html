@@ -262,7 +262,20 @@ async function showSource(id) {
       ${s.summary ? "Re-summarise" : "Summarise"}</button>
     <h3 style="margin-top:14px">Notes</h3>
     <textarea id="sd-notes">${esc(s.notes)}</textarea>
-    <button class="ghost" onclick="saveNotes(${id})">Save notes</button>`;
+    <div class="inline" style="margin-top:6px">
+      <button class="ghost" onclick="saveNotes(${id})">Save notes</button>
+      <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
+        onclick="deleteSource(${id})">Delete source</button>
+    </div>`;
+}
+async function deleteSource(id) {
+  const s = sources.find(x => x.id === id);
+  if (!confirm(`Delete "${s ? s.title : id}"?\nRemoves its text, summary, BibTeX entry, and all matches. Drafts citing it will fail audit.`)) return;
+  await api("/api/sources/" + id, {method: "DELETE"});
+  selectedSource = null;
+  $("source-detail").innerHTML = "<h3>Select a source</h3>";
+  await loadSources(); await loadStats(); await loadIdeas();
+  flash("source deleted");
 }
 async function setStatus(id) {
   await post(`/api/sources/${id}/status/` + $("sd-status").value);
@@ -334,6 +347,8 @@ async function showIdea(id) {
       <button class="ghost" onclick="busy(this, () => relatedWork(${id}, 'markdown'))">Related work (md)</button>
       <button class="ghost" onclick="busy(this, () => relatedWork(${id}, 'latex'))">LaTeX</button>
       <button class="ghost" onclick="busy(this, () => showBib(${id}))">BibTeX</button>
+      <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
+        onclick="deleteIdea(${id})">Delete idea</button>
     </div>
     <div id="match-list">${matches.map(matchHtml).join("") ||
       "<p style='color:var(--muted)'>No matches yet — click Suggest.</p>"}</div>
@@ -370,6 +385,15 @@ async function showBib(id) {
   const r = await api(`/api/bib?idea_id=${id}`);
   const out = $("rw-output"); out.style.display = "block";
   out.textContent = r.text || "(no confirmed sources yet)";
+}
+async function deleteIdea(id) {
+  const idea = ideas.find(x => x.id === id);
+  if (!confirm(`Delete idea "${idea ? idea.title : id}"?\nRemoves its whole version history and all matches.`)) return;
+  await api("/api/ideas/" + id, {method: "DELETE"});
+  selectedIdea = null;
+  $("idea-detail").innerHTML = "<h3>Select an idea</h3>";
+  await loadIdeas(); await loadStats();
+  flash("idea deleted");
 }
 async function loadGaps() {
   const g = await api("/api/gaps");

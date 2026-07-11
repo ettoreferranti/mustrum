@@ -74,3 +74,12 @@ identically). Wording, casing, digits, and word order remain strict — the
 fold cannot mask invented content, only glyph variance introduced by PDF
 extraction. Motivating case: a Springer paper whose correct quotes failed on
 ' vs ' and – vs -.
+
+## ADR-11 — Deletion is a user right, distinct from tampering (2026-07-12, accepted)
+ADR-7 guards stored evidence against *alteration*; it does not forbid the
+user removing an entire record. `delete_source`/`delete_idea` cascade over
+every dependent row (text, summary, BibTeX, matches, tags, contact links,
+embeddings, search index) so no grounded claim can dangle against removed
+text. The source-text triggers are dropped and recreated around the cascade,
+exactly as in ADR-9. Deleting a cited source is allowed — drafts citing its
+key will subsequently fail `audit`, which is the correct signal.

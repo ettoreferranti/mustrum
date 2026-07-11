@@ -78,6 +78,7 @@ stories at the bottom of the relevant epic.
 |---|---|---|---|
 | E8-1 | Full-text search (FTS5) across sources/ideas/summaries/contacts | M | done |
 | E8-2 | Tags + reading status + per-source notes | S | done |
+| E8-3 | Delete sources/ideas with full cascade (CLI `--yes` guard, GUI confirm, API DELETE) — found via GUI testing | S | done |
 
 ## Phase 2 — Longevity & polish
 

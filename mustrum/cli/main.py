@@ -314,6 +314,30 @@ def source_show(source_id: int) -> None:
         typer.echo(f"citation key: {bib.citation_key} ({bib.origin.value})")
 
 
+@source_app.command("attach")
+def source_attach(source_id: int, path: Path) -> None:
+    """Attach a downloaded PDF (or text file) to an existing source — e.g. a
+    paper ingested by DOI whose PDF the tool couldn't fetch automatically.
+    Upgrading an abstract invalidates the summary (re-run summarise)."""
+    if not path.is_file():
+        _fail(f"no such file: {path}")
+    ctx = _context()
+    extractor = extractor_for(path)
+    had_summary = ctx.repo.get_summary(source_id) is not None
+    try:
+        IngestService(ctx.repo, ctx.embedder).attach_full_text(
+            source_id, extractor.extract(path), extractor.extraction_method
+        )
+    except (KeyError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"attached full text to [{source_id}]")
+    if had_summary:
+        typer.secho(
+            f"summary invalidated — run: mustrum summarise {source_id}", fg=typer.colors.YELLOW
+        )
+
+
 @source_app.command("status")
 def source_status(source_id: int, status: ReadingStatus) -> None:
     ctx = _context()
@@ -696,9 +720,8 @@ def config_cmd(
         typer.echo(f"wrote {config_path}")
         return
     config = load_config(path)
-    typer.echo(
-        f"config file:      {config_path} ({'present' if config_path.is_file() else 'absent — defaults in effect'})"
-    )
+    state = "present" if config_path.is_file() else "absent — defaults in effect"
+    typer.echo(f"config file:      {config_path} ({state})")
     typer.echo(f"db_path:          {config.db_path}")
     typer.echo(f"ollama_url:       {config.ollama_url}")
     typer.echo(f"llm_model:        {config.llm_model}")

@@ -499,3 +499,61 @@ class TestFindIdeaByTitle:
         first = repo.add_idea(Idea(title="Same"))
         repo.add_idea(Idea(title="Same"))
         assert repo.find_idea_by_title("Same") == first
+
+
+class TestReplaceSourceText:
+    def test_replaces_text_and_method(self, repo):
+        s = repo.add_source(make_source())
+        repo.add_source_text(
+            SourceText(source_id=s.id, text="abstract", extraction_method="abstract")
+        )
+        repo.replace_source_text(
+            SourceText(source_id=s.id, text="full body", extraction_method="pymupdf")
+        )
+        stored = repo.get_source_text(s.id)
+        assert stored.text == "full body"
+        assert stored.extraction_method == "pymupdf"
+
+    def test_immutability_triggers_survive_replacement(self, repo):
+        s = repo.add_source(make_source())
+        repo.add_source_text(SourceText(source_id=s.id, text="a", extraction_method="abstract"))
+        repo.replace_source_text(SourceText(source_id=s.id, text="b", extraction_method="pymupdf"))
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            repo._conn.execute("UPDATE source_texts SET text = 'tampered'")
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            repo._conn.execute("DELETE FROM source_texts")
+
+    def test_replace_without_existing_text_raises(self, repo):
+        s = repo.add_source(make_source())
+        with pytest.raises(KeyError, match="no text to replace"):
+            repo.replace_source_text(
+                SourceText(source_id=s.id, text="x", extraction_method="pymupdf")
+            )
+
+    def test_replacement_reindexes_search(self, repo):
+        s = repo.add_source(make_source(title="Plain", doi=None, arxiv_id=None))
+        repo.add_source_text(
+            SourceText(source_id=s.id, text="ephemeral words", extraction_method="abstract")
+        )
+        repo.replace_source_text(
+            SourceText(source_id=s.id, text="durable content", extraction_method="pymupdf")
+        )
+        assert repo.search("ephemeral") == []
+        assert repo.search("durable")[0].ref_id == s.id
+
+
+class TestDeleteSummary:
+    def test_deletes_and_reindexes(self, repo):
+        s = repo.add_source(make_source())
+        repo.add_source_text(SourceText(source_id=s.id, text="t", extraction_method="abstract"))
+        repo.set_summary(
+            Summary(source_id=s.id, text="wombat findings", evidence=(), model="m", verified=True)
+        )
+        assert repo.search("wombat")
+        repo.delete_summary(s.id)
+        assert repo.get_summary(s.id) is None
+        assert repo.search("wombat") == []
+
+    def test_delete_missing_is_noop(self, repo):
+        repo.add_source(make_source())
+        repo.delete_summary(1)

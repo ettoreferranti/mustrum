@@ -24,6 +24,8 @@ stories at the bottom of the relevant epic.
 | E1-4 | Plain text / Markdown ingestion | M | done |
 | E1-5 | Deduplication (DOI / arXiv ID / title-hash) with merge-or-skip prompt | M | done |
 | E1-6 | Provenance tracking per metadata field | S | done |
+| E1-9 | `source attach`: attach a manually-downloaded PDF to an existing source; abstract→full-text upgrade invalidates summary + re-embeds (ADR-9) | S | done |
+| E1-10 | Docs guard: every CLI command must appear in README (test-enforced) | S | done |
 | E1-8 | Automatic full-text PDF fetch on ingest: arXiv PDFs always, DOIs via Unpaywall open-access lookup; abstract fallback | S | done |
 | E1-7 | Batch folder ingest (`ingest folder DIR [-r]`): all PDFs, per-file errors don't abort, idempotent re-runs | S | done |
 

@@ -52,3 +52,14 @@ weights (~40 GB) leave no headroom on 48 GB and inference would be slow.
 both names live in config only, so swapping is a one-line change and never
 touches code. Grounding verification (ADR-7) makes model choice a prose-quality
 concern, not a correctness one.
+
+## ADR-9 — Controlled source-text upgrade (2026-07-11, accepted)
+Amends ADR-7. Papers ingested by DOI often start with only their abstract
+(publisher PDF not fetchable); when the user later obtains the PDF
+(`source attach`), the abstract may be *upgraded* to the full text. Rules:
+only `abstract` texts may be replaced, never a stored full text; the swap
+happens through a dedicated repo API that drops and atomically recreates the
+immutability triggers; and everything derived from the old text is
+invalidated in the same operation — the summary is deleted and embeddings are
+recomputed — so no stored claim ever remains grounded against text that is
+gone. Arbitrary edits to source texts remain impossible.

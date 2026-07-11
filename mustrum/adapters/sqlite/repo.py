@@ -203,6 +203,36 @@ class SqliteRepo:
         self._conn.commit()
         self._reindex_source(text.source_id)
 
+    def replace_source_text(self, text: SourceText) -> None:
+        """Controlled text upgrade (ADR-9): the immutability triggers are
+        dropped and recreated around the swap, atomically. Callers (the ingest
+        service) must invalidate summaries/embeddings derived from the old
+        text — this method only swaps the text."""
+        if self.get_source_text(text.source_id) is None:
+            raise KeyError(f"source {text.source_id} has no text to replace")
+        try:
+            self._conn.execute("DROP TRIGGER source_texts_immutable_update")
+            self._conn.execute("DROP TRIGGER source_texts_immutable_delete")
+            self._conn.execute("DELETE FROM source_texts WHERE source_id = ?", (text.source_id,))
+            self._conn.execute(
+                """INSERT INTO source_texts (source_id, text, extraction_method, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (text.source_id, text.text, text.extraction_method, _dt(text.created_at)),
+            )
+        finally:
+            self._conn.executescript(
+                """
+                CREATE TRIGGER IF NOT EXISTS source_texts_immutable_update
+                    BEFORE UPDATE ON source_texts
+                    BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
+                CREATE TRIGGER IF NOT EXISTS source_texts_immutable_delete
+                    BEFORE DELETE ON source_texts
+                    BEGIN SELECT RAISE(ABORT, 'source_texts is immutable (ADR-7)'); END;
+                """
+            )
+        self._conn.commit()
+        self._reindex_source(text.source_id)
+
     def get_source_text(self, source_id: int) -> SourceText | None:
         row = self._conn.execute(
             "SELECT * FROM source_texts WHERE source_id = ?", (source_id,)
@@ -239,6 +269,11 @@ class SqliteRepo:
         )
         self._conn.commit()
         self._reindex_source(summary.source_id)
+
+    def delete_summary(self, source_id: int) -> None:
+        self._conn.execute("DELETE FROM summaries WHERE source_id = ?", (source_id,))
+        self._conn.commit()
+        self._reindex_source(source_id)
 
     def get_summary(self, source_id: int) -> Summary | None:
         row = self._conn.execute(

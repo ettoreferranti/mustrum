@@ -129,6 +129,46 @@ class IngestService:
         self._attach_fetched_bib(saved, meta.raw_bibtex)
         return IngestResult(source=saved, created=True)
 
+    def attach_full_text(self, source_id: int, text: str, extraction_method: str) -> None:
+        """Attach a full text to an existing source, or upgrade an abstract
+        (ADR-9). A stored full text is never silently replaced.
+
+        Upgrading invalidates everything derived from the old text: the
+        summary is deleted and the embeddings are recomputed, so nothing in
+        the library stays grounded against text that is no longer there.
+        """
+        source = self._repo.get_source(source_id)
+        if not text.strip():
+            raise ValueError("no text to attach")
+        existing = self._repo.get_source_text(source_id)
+        if existing is None:
+            self._attach_text(source, text, extraction_method)
+            return
+        if existing.extraction_method != "abstract":
+            raise ValueError(
+                f"source {source_id} already has full text "
+                f"({existing.extraction_method}); refusing to replace it"
+            )
+        self._repo.replace_source_text(
+            SourceText(source_id=source_id, text=text, extraction_method=extraction_method)
+        )
+        self._repo.delete_summary(source_id)
+        self._repo.delete_embeddings(EntityKind.SOURCE, source_id)
+        chunks = chunk_text(text)
+        vectors = self._embedder.embed(chunks)
+        self._repo.store_embeddings(
+            [
+                Embedding(
+                    entity=EntityKind.SOURCE,
+                    ref_id=source_id,
+                    chunk_index=i,
+                    model=self._embedder.model_name,
+                    vector=vector,
+                )
+                for i, vector in enumerate(vectors)
+            ]
+        )
+
     # -- internals -----------------------------------------------------------
 
     def _find_duplicate(self, source: Source) -> tuple[Source, str] | None:

@@ -48,6 +48,72 @@ uv run mustrum search "attention"
 uv run mustrum contact add "Prof X" --kind university --affiliation "Unseen University"
 ```
 
+## Command reference
+
+Every command, grouped by task (`mustrum <command> --help` gives full options).
+
+### Ingesting sources
+
+| Command | Purpose |
+|---|---|
+| `mustrum ingest arxiv <id>` | Authoritative metadata + BibTeX + full-text PDF |
+| `mustrum ingest doi <doi>` | Metadata + BibTeX via Crossref; PDF via Unpaywall open-access lookup, then publisher links (work on subscription networks) |
+| `mustrum ingest file <path>` | One PDF or text/Markdown file (`--title`, `--author`, `--year`, `--kind`) |
+| `mustrum ingest folder <dir>` | Every PDF in a folder (`-r` recursive); re-run safe |
+
+All accept `--on-duplicate fail|skip|merge`; `merge` enriches an existing
+record instead of duplicating. `--no-pdf` skips full-text download.
+
+### Sources
+
+| Command | Purpose |
+|---|---|
+| `mustrum source list` / `mustrum source show <id>` | Browse the library |
+| `mustrum source attach <id> <file>` | Attach a manually-downloaded PDF to an existing source (upgrades an abstract; invalidates its summary) |
+| `mustrum source status <id> <unread\|skimmed\|read>` | Reading status |
+| `mustrum source tag <id> <tag>` (`--remove`) | Tags |
+| `mustrum source note <id> "<text>"` | Personal notes (searchable) |
+| `mustrum summarise <id>` | Grounded, verified summary (`--force`, `--override "<text>"`) |
+| `mustrum summarise --all` | Every source lacking a summary; failures reported, never stored |
+
+### Ideas
+
+| Command | Purpose |
+|---|---|
+| `mustrum idea new "<title>" "<text>"` | Capture an idea (embedded immediately) |
+| `mustrum idea import <file.md>` | Bulk import: one idea per `# Heading` (`--on-existing skip\|revise\|create`) |
+| `mustrum idea revise <id> "<text>"` | New version; history kept forever |
+| `mustrum idea list` / `mustrum idea show <id>` (`--history`) | Browse |
+| `mustrum idea link <from> <to> --relation <r>` | builds-on / contrasts-with / related |
+
+### Matching
+
+| Command | Purpose |
+|---|---|
+| `mustrum match suggest <idea-id>` | Ranked source candidates (`--threshold`, `--limit`) |
+| `mustrum match confirm <match-id>` / `mustrum match reject <match-id>` | Your judgement is final |
+| `mustrum match add <idea-id> <source-id>` | Manually link a source |
+| `mustrum match list <idea-id>` | Review matches (`--status`) |
+| `mustrum gaps` | Ideas without confirmed support; orphan sources |
+
+### Writing support & exploration
+
+| Command | Purpose |
+|---|---|
+| `mustrum related-work <idea-id>` | Citation-verified skeleton (`--format markdown\|latex`, `-o`) |
+| `mustrum bib` | BibTeX export (`--idea <id>`, `-o refs.bib`) |
+| `mustrum audit <draft>` | Verify every `\\cite`/`[@key]` in a draft against the library |
+| `mustrum graph` | Self-contained HTML knowledge graph (`--open`, `-o`, `--no-contacts`) |
+| `mustrum search "<query>"` | Full-text search across everything |
+| `mustrum contact add "<name>"` | People/institutions (`--kind`, `--affiliation`, `--email`, `--notes`) |
+| `mustrum contact link <id> --idea <id>\|--source <id> --why "..."` | Attach contacts with the reason |
+| `mustrum contact list` | Browse contacts |
+| `mustrum config` | Show effective configuration (`--init` writes a template) |
+
+The typical loop: ingest → summarise → capture ideas → match suggest/confirm
+→ related-work + bib when writing → audit before submitting → graph to see
+the big picture.
+
 ## Configuration & syncing (iCloud / OneDrive)
 
 Your entire library — sources, verbatim texts, summaries, ideas, matches,

@@ -21,7 +21,12 @@ citations + contacts). Python, hexagonal architecture, local-first.
    `EmbeddingProvider` ports (Ollama now, Anthropic later, fakes in tests).
 7. Default test suite must pass offline with no Ollama running (fake
    providers); Ollama/network integration tests behind pytest markers.
-8. **Privacy — this repo is public.** Never commit personal data: no real
+8. **README stays in sync with the CLI.** Every command must be documented in
+   README.md's command reference — `tests/unit/test_docs.py` introspects the
+   typer app and fails on any undocumented command. Update the README in the
+   same commit as any CLI change (new commands, renamed options, changed
+   workflow).
+9. **Privacy — this repo is public.** Never commit personal data: no real
    e-mail addresses, affiliations, or machine paths; user settings live only
    in `~/.config/mustrum/config.toml`. Generated artefacts (graph HTML, .bib
    exports, .db files) contain the user's library and must stay gitignored —

@@ -294,3 +294,25 @@ class TestConfigCommand:
         target.write_text("# mine")
         invoke("config", "--init", "--path", str(target), expect_exit=1)
         assert target.read_text() == "# mine"
+
+
+class TestSourceAttach:
+    def test_attach_pdf_to_abstract_only_source(self, tmp_path, monkeypatch):
+        stub = tmp_path / "abstract-only.md"
+        stub.write_text("")
+        invoke("ingest", "file", str(stub), "--title", "Paywalled Paper")
+        pdf = tmp_path / "downloaded.pdf"
+        make_pdf(pdf, "the full downloaded paper body")
+        out = invoke("source", "attach", "1", str(pdf))
+        assert "attached full text to [1]" in out
+        assert "source [1]" in invoke("search", "downloaded")
+
+    def test_attach_refuses_existing_full_text(self, tmp_path, note):
+        invoke("ingest", "file", str(note), "--title", "Complete")
+        pdf = tmp_path / "other.pdf"
+        make_pdf(pdf, "different content")
+        invoke("source", "attach", "1", str(pdf), expect_exit=1)
+
+    def test_attach_missing_file(self):
+        invoke("contact", "add", "pad")
+        invoke("source", "attach", "1", "/nonexistent.pdf", expect_exit=1)

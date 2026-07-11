@@ -6,7 +6,17 @@ import re
 import subprocess
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# resolved through git so the test scans the real repository even when the
+# suite runs from a copied tree (mutmut's mutants/ sandbox)
+REPO_ROOT = Path(
+    subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=Path(__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+)
 
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 ALLOWED_EMAIL_DOMAINS = {"example.com", "example.org", "anthropic.com"}

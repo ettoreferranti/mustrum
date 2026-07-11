@@ -2,7 +2,14 @@ import pytest
 
 from mustrum.adapters.fake import FakeEmbeddingProvider
 from mustrum.adapters.sqlite.repo import SqliteRepo
-from mustrum.core.models import BibOrigin, EntityKind, FetchedMetadata, FieldOrigin, SourceKind
+from mustrum.core.models import (
+    BibOrigin,
+    EntityKind,
+    FetchedMetadata,
+    FieldOrigin,
+    SourceKind,
+    Summary,
+)
 from mustrum.core.services.ingest import DuplicateSourceError, IngestService
 
 
@@ -328,3 +335,45 @@ class TestIngestFetchedFullText:
         stored = repo.get_source_text(result.source.id)
         assert stored.text == "full body from OA pdf"
         assert stored.extraction_method == "pdf-download"
+
+
+class TestAttachFullText:
+    def _fetched(self, service):
+        return service.ingest_fetched(META).source  # stores abstract text
+
+    def test_upgrades_abstract_and_invalidates_derivatives(self, repo, service):
+        source = self._fetched(service)
+        repo.set_summary(
+            Summary(source_id=source.id, text="old", evidence=(), model="m", verified=True)
+        )
+        old_embeddings = repo.embeddings_for(EntityKind.SOURCE, "fake-embed")
+        service.attach_full_text(source.id, "para one\n\npara two", "pymupdf")
+        stored = repo.get_source_text(source.id)
+        assert stored.text == "para one\n\npara two"
+        assert stored.extraction_method == "pymupdf"
+        assert repo.get_summary(source.id) is None  # summary invalidated
+        new_embeddings = repo.embeddings_for(EntityKind.SOURCE, "fake-embed")
+        assert new_embeddings != old_embeddings
+        assert {e.ref_id for e in new_embeddings} == {source.id}
+
+    def test_attaches_when_no_text_exists(self, repo, service):
+        bare = service.ingest_document(title="Bare", text="", extraction_method="plaintext")
+        service.attach_full_text(bare.source.id, "now present", "pymupdf")
+        assert repo.get_source_text(bare.source.id).text == "now present"
+
+    def test_refuses_to_replace_full_text(self, repo, service):
+        full = service.ingest_document(
+            title="Full", text="real full text", extraction_method="pymupdf"
+        )
+        with pytest.raises(ValueError, match="refusing to replace"):
+            service.attach_full_text(full.source.id, "other text", "pymupdf")
+        assert repo.get_source_text(full.source.id).text == "real full text"
+
+    def test_missing_source_raises(self, service):
+        with pytest.raises(KeyError):
+            service.attach_full_text(999, "x", "pymupdf")
+
+    def test_empty_text_rejected(self, service):
+        source = self._fetched(service)
+        with pytest.raises(ValueError, match="no text"):
+            service.attach_full_text(source.id, "   ", "pymupdf")

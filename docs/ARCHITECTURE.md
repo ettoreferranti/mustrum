@@ -65,6 +65,10 @@ Implementation notes (v1 schema, `adapters/sqlite/`):
 - datetimes ISO-8601 strings; list/dict fields JSON; vectors float64 blobs.
 - `source_texts` immutability (ADR-7) is enforced *in the database* by
   BEFORE UPDATE/DELETE triggers that RAISE(ABORT), not just by convention.
+  One sanctioned exception (ADR-9): an abstract may be upgraded to the full
+  text via `replace_source_text`, which swaps the row inside a drop/recreate
+  of the triggers; the ingest service invalidates the summary and re-embeds
+  in the same operation.
 - One FTS5 table `search_index(entity, ref_id, body)` covers sources
   (title+authors+notes+text+summary), ideas (title+versions), contacts;
   re-indexed per entity on write. User queries are token-quoted so FTS5

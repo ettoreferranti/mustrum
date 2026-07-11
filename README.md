@@ -82,6 +82,7 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 |---|---|
 | `mustrum source list` / `mustrum source show <id>` | Browse the library |
 | `mustrum source attach <id> <file>` | Attach a manually-downloaded PDF to an existing source (upgrades an abstract; invalidates its summary) |
+| `mustrum source enrich <id>` / `--all` | Complete bare PDF sources with Crossref metadata found by exact-title lookup (authors, year, DOI, BibTeX) |
 | `mustrum source rename <id> "<title>"` | Set a proper title (PDF ingests use PDF-metadata titles automatically when sane) |
 | `mustrum source delete <id>` | Remove a source and everything attached to it (`--yes` skips the prompt) |
 | `mustrum source status <id> <unread\|skimmed\|read>` | Reading status |

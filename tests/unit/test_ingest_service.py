@@ -141,7 +141,7 @@ class TestIngestFetched:
         assert merged.year == 2016
         assert result.merged is True
 
-    def test_clashing_citation_key_from_another_source_rejected(self, repo, service):
+    def test_clashing_citation_key_deduplicated_with_suffix(self, repo, service):
         service.ingest_fetched(META)
         other = FetchedMetadata(
             title="A Different Paper",
@@ -152,8 +152,33 @@ class TestIngestFetched:
             raw_bibtex="@misc{vaswani2017attention,\n  title={A Different Paper}\n}",
             abstract="",
         )
-        with pytest.raises(DuplicateSourceError, match="citation key"):
-            service.ingest_fetched(other)
+        result = service.ingest_fetched(other)
+        bib = repo.get_bib_entry(result.source.id)
+        assert bib.citation_key == "vaswani2017attentiona"
+        # the key token inside the raw entry is rewritten to match
+        assert bib.raw_bibtex.startswith("@misc{vaswani2017attentiona,")
+        assert "title={A Different Paper}" in bib.raw_bibtex
+        # the first source keeps its original key untouched
+        first = repo.find_source_by_doi(META.doi)
+        assert repo.get_bib_entry(first.id).citation_key == "vaswani2017attention"
+
+    def test_second_clash_gets_next_suffix(self, repo, service):
+        service.ingest_fetched(META)
+        for n, doi in enumerate(["10.1/o1", "10.1/o2"]):
+            service.ingest_fetched(
+                FetchedMetadata(
+                    title=f"Different Paper {n}",
+                    authors=(),
+                    year=2020,
+                    doi=doi,
+                    arxiv_id=None,
+                    raw_bibtex="@misc{vaswani2017attention,}",
+                    abstract="",
+                )
+            )
+        assert {"vaswani2017attention", "vaswani2017attentiona", "vaswani2017attentionb"} <= (
+            repo.citation_keys()
+        )
 
     def test_no_abstract_means_no_text(self, repo, service):
         meta = FetchedMetadata(
@@ -377,3 +402,23 @@ class TestAttachFullText:
         source = self._fetched(service)
         with pytest.raises(ValueError, match="no text"):
             service.attach_full_text(source.id, "   ", "pymupdf")
+
+    def test_suffix_rewrite_touches_only_the_key_token(self, repo, service):
+        service.ingest_fetched(META)
+        tricky = FetchedMetadata(
+            title="Tricky Body Paper",
+            authors=(),
+            year=2020,
+            doi="10.1/tricky",
+            arxiv_id=None,
+            raw_bibtex=(
+                "@misc{vaswani2017attention,\n"
+                "  note={vaswani2017attention, cited as {vaswani2017attention, sometimes}}\n}"
+            ),
+            abstract="",
+        )
+        result = service.ingest_fetched(tricky)
+        bib = repo.get_bib_entry(result.source.id)
+        assert bib.raw_bibtex.startswith("@misc{vaswani2017attentiona,")
+        # occurrences inside the body are untouched
+        assert "note={vaswani2017attention, cited as {vaswani2017attention," in bib.raw_bibtex

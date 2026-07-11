@@ -83,3 +83,12 @@ embeddings, search index) so no grounded claim can dangle against removed
 text. The source-text triggers are dropped and recreated around the cascade,
 exactly as in ADR-9. Deleting a cited source is allowed — drafts citing its
 key will subsequently fail `audit`, which is the correct signal.
+
+## ADR-12 — Citation keys are unique; colliding fetched keys get a suffix (2026-07-12, accepted)
+Publishers derive BibTeX keys like Author_Year, which collide across papers
+(observed live: two 2025 Mosquera papers both keyed Mosquera_2025). Duplicate
+keys are unusable in LaTeX, so on collision the new entry key gains an
+a/b/c… suffix, rewritten both in the citation_key column and — the sole
+sanctioned amendment to fetched BibTeX — in the key token of the raw entry,
+keeping the two byte-identical in what they cite. All other bytes of the
+fetched entry remain untouched.

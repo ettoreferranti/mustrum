@@ -265,8 +265,12 @@ async function showSource(id) {
       ${s.summary.evidence.map(q => `<div class="quote">“${esc(q)}”</div>`).join("")}
       <p class="meta" style="color:var(--muted)">summary: ${esc(s.summary.model)}, verified</p>`
       : "<p style='color:var(--muted)'>No summary yet.</p>"}</div>
+    <div class="inline">
     <button class="act" onclick="busy(this, () => summarise(${id}))">
       ${s.summary ? "Re-summarise" : "Summarise"}</button>
+    ${!s.doi ? `<button class="ghost" title="look up authors/year/DOI/BibTeX on Crossref by exact title"
+      onclick="busy(this, () => enrich(${id}))">Find metadata</button>` : ""}
+    </div>
     <h3 style="margin-top:14px">Notes</h3>
     <textarea id="sd-notes">${esc(s.notes)}</textarea>
     <div class="inline" style="margin-top:6px">
@@ -274,6 +278,11 @@ async function showSource(id) {
       <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
         onclick="deleteSource(${id})">Delete source</button>
     </div>`;
+}
+async function enrich(id) {
+  const r = await post(`/api/sources/${id}/enrich`);
+  flash(r.message, !r.enriched);
+  if (r.enriched) { await loadSources(); await showSource(id); }
 }
 async function renameSource(id) {
   const s = sources.find(x => x.id === id);

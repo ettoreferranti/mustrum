@@ -72,5 +72,6 @@ also_copy = [
     "mustrum/adapters/",
     "mustrum/cli/",
     "mustrum/graph/",
+    "mustrum/web/",
 ]
 do_not_mutate = ["mustrum/core/ports.py"]  # Protocol stubs: declarations, no behaviour

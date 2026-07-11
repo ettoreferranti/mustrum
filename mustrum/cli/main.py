@@ -359,6 +359,48 @@ def source_rename(source_id: int, title: str) -> None:
     typer.echo(f"renamed [{source_id}] to: {title}")
 
 
+@source_app.command("enrich")
+def source_enrich(
+    source_id: Annotated[int | None, typer.Argument()] = None,
+    enrich_all: Annotated[
+        bool, typer.Option("--all", help="Every source that lacks a DOI.")
+    ] = False,
+) -> None:
+    """Complete a bare PDF-ingested source with authoritative Crossref
+    metadata (authors, year, DOI, BibTeX), found by exact-title lookup."""
+    from mustrum.adapters.enrich import enrich_source
+
+    if enrich_all == (source_id is not None):
+        _fail("give either a SOURCE_ID or --all")
+    ctx = _context()
+    targets = (
+        [source_id]
+        if source_id is not None
+        else [s.id for s in ctx.repo.list_sources() if not s.doi and s.id is not None]
+    )
+    if not targets:
+        typer.echo("nothing to enrich — every source already has a DOI")
+        return
+    failed = 0
+    for target in targets:
+        assert target is not None
+        try:
+            result = enrich_source(ctx.repo, ctx.embedder, target)
+        except KeyError as exc:
+            _fail(str(exc))
+            return
+        except Exception as exc:  # network errors must not abort --all
+            typer.secho(f"[{target}] lookup failed: {exc}", fg=typer.colors.RED, err=True)
+            failed += 1
+            continue
+        colour = None if result.enriched else typer.colors.YELLOW
+        typer.secho(f"[{target}] {result.message}", fg=colour)
+        if not result.enriched:
+            failed += 1
+    if failed and enrich_all:
+        raise typer.Exit(code=1)
+
+
 @source_app.command("status")
 def source_status(source_id: int, status: ReadingStatus) -> None:
     ctx = _context()

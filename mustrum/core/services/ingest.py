@@ -245,7 +245,18 @@ class IngestService:
         assert source.id is not None
         key = extract_citation_key(raw_bibtex)
         if self._repo.get_bib_entry_by_key(key) is not None:
-            raise DuplicateSourceError(source, f"citation key {key!r}")
+            # publishers derive keys like Author_Year, which collide across
+            # papers; duplicate keys are unusable in LaTeX, so de-duplicate by
+            # suffix and rewrite exactly the key token in the raw entry
+            # (ADR-12: the sole sanctioned amendment to fetched BibTeX)
+            existing = self._repo.citation_keys()
+            for suffix in "abcdefghijklmnopqrstuvwxyz":
+                if (candidate := f"{key}{suffix}") not in existing:
+                    break
+            else:  # pragma: no cover - 26 collisions on one key
+                raise ValueError(f"could not derive a unique citation key from {key!r}")
+            raw_bibtex = raw_bibtex.replace(f"{{{key},", f"{{{candidate},", 1)
+            key = candidate
         self._repo.set_bib_entry(
             BibEntry(
                 source_id=source.id,

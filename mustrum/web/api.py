@@ -170,6 +170,18 @@ def create_app(
         repo.update_source(dataclasses.replace(source, title=title))
         return {"ok": True}
 
+    @app.post("/api/sources/{source_id}/enrich")
+    async def enrich(source_id: int) -> dict[str, Any]:
+        from mustrum.adapters.enrich import enrich_source
+
+        try:
+            result = enrich_source(repo, embedder, source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, f"Crossref lookup failed: {exc}") from exc
+        return {"enriched": result.enriched, "message": result.message}
+
     @app.post("/api/sources/{source_id}/notes")
     async def set_notes(source_id: int, payload: TextPayload) -> dict[str, Any]:
         try:

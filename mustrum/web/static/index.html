@@ -26,12 +26,13 @@
                color: var(--muted); padding: 8px 16px; border-radius: 8px 8px 0 0;
                cursor: pointer; font-size: .95rem; }
   nav button.active { background: var(--panel); color: var(--ink); font-weight: 600; }
-  main { padding: 18px 22px; max-width: 1200px; }
+  main { padding: 18px 22px; max-width: 1400px; }
   .tab { display: none; } .tab.active { display: block; }
   .row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
-  .col { flex: 1 1 380px; min-width: 320px; }
+  .col { flex: 1 1 420px; min-width: 340px; }
+  .col.wide { flex: 1.3 1 480px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-          padding: 14px 16px; margin-bottom: 12px; }
+          padding: 14px 16px; margin-bottom: 12px; overflow-wrap: anywhere; }
   .card h3 { margin: 0 0 8px; font-size: 1rem; }
   input[type=text], textarea, select {
     width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
@@ -42,7 +43,8 @@
   button.act:disabled { opacity: .5; cursor: wait; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink);
                  padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: .85rem; }
-  .list-item { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .list-item { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer;
+               overflow-wrap: anywhere; }
   .list-item:hover, .list-item.selected { background: var(--accent-soft); }
   .list-item .meta { color: var(--muted); font-size: .8rem; }
   .badge { display: inline-block; background: var(--accent-soft); color: var(--accent);
@@ -80,7 +82,7 @@
 
 <section class="tab active" id="tab-library">
   <div class="row">
-    <div class="col">
+    <div class="col wide">
       <div class="card">
         <h3>Add sources</h3>
         <div class="inline">
@@ -236,15 +238,20 @@ function renderSources() {
     <div class="list-item ${selectedSource === s.id ? "selected" : ""}"
          onclick="showSource(${s.id})">
       <div>${esc(s.title)}</div>
-      <div class="meta">${s.year ?? ""} ${esc((s.authors[0] || ""))}
-        ${s.summary ? "· summarised" : ""} ${s.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</div>
+      <div class="meta">${[
+          s.year, s.authors[0], s.summary ? "summarised" : null,
+          s.has_text ? null : "no text",
+        ].filter(Boolean).map(esc).join(" · ")}
+        ${s.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</div>
     </div>`).join("") || "<p style='color:var(--muted)'>No sources yet — add one above.</p>";
 }
 async function showSource(id) {
   selectedSource = id; renderSources();
   const s = await api("/api/sources/" + id);
   $("source-detail").innerHTML = `
-    <h3>${esc(s.title)} ${s.year ? "(" + s.year + ")" : ""}</h3>
+    <h3>${esc(s.title)} ${s.year ? "(" + s.year + ")" : ""}
+      <button class="ghost" title="rename" style="font-size:.75rem;padding:2px 8px"
+        onclick="renameSource(${id})">rename</button></h3>
     <p class="meta" style="color:var(--muted)">${esc(s.authors.join(", "))}</p>
     ${s.citation_key ? `<p><span class="badge">[@${esc(s.citation_key)}]</span></p>` : ""}
     ${s.doi ? `<p class="meta" style="color:var(--muted)">doi: ${esc(s.doi)}</p>` : ""}
@@ -267,6 +274,16 @@ async function showSource(id) {
       <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
         onclick="deleteSource(${id})">Delete source</button>
     </div>`;
+}
+async function renameSource(id) {
+  const s = sources.find(x => x.id === id);
+  const title = prompt("New title:", s ? s.title : "");
+  if (!title || !title.trim()) return;
+  try {
+    await post(`/api/sources/${id}/title`, {text: title.trim()});
+  } catch (e) { flash(e.message, true); return; }
+  await loadSources(); await showSource(id);
+  flash("renamed");
 }
 async function deleteSource(id) {
   const s = sources.find(x => x.id === id);

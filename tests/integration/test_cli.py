@@ -458,3 +458,37 @@ class TestDelete:
         result = runner.invoke(app, ["source", "delete", "1"], input="n\n")
         assert result.exit_code != 0
         assert "Kept" in invoke("source", "list")
+
+
+class TestTitles:
+    def test_folder_ingest_uses_pdf_metadata_title(self, tmp_path):
+        import pymupdf
+
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "actual content of the paper")
+        doc.set_metadata({"title": "A Very Proper Paper Title"})
+        doc.save(folder / "1-s2.0-S0164121225001979-main.pdf")
+        doc.close()
+        make_pdf(folder / "no-meta.pdf", "content without metadata")
+        out = invoke("ingest", "folder", str(folder))
+        assert "ingested [1] A Very Proper Paper Title" in out
+        assert "ingested [2] no-meta" in out  # falls back to file name
+
+    def test_source_rename(self, note):
+        invoke("ingest", "file", str(note), "--title", "ugly_file_name_main")
+        out = invoke("source", "rename", "1", "Graph Networks: A Survey")
+        assert "renamed [1]" in out
+        assert "Graph Networks: A Survey" in invoke("source", "show", "1")
+        assert "source [1]" in invoke("search", "survey")
+
+    def test_rename_collision_rejected(self, tmp_path, note):
+        invoke("ingest", "file", str(note), "--title", "First")
+        other = tmp_path / "other.md"
+        other.write_text("different content entirely")
+        invoke("ingest", "file", str(other), "--title", "Second")
+        invoke("source", "rename", "2", "first", expect_exit=1)  # title-hash clash
+
+    def test_rename_missing_source(self):
+        invoke("source", "rename", "9", "X Y", expect_exit=1)

@@ -214,3 +214,37 @@ class TestDelete:
     def test_delete_missing_404(self, client):
         assert client.delete("/api/sources/9").status_code == 404
         assert client.delete("/api/ideas/9").status_code == 404
+
+
+class TestRename:
+    def test_rename_endpoint(self, client):
+        source_id = ingest_note(client)
+        response = client.post(f"/api/sources/{source_id}/title", json={"text": "Proper Title"})
+        assert response.status_code == 200
+        assert client.get(f"/api/sources/{source_id}").json()["title"] == "Proper Title"
+
+    def test_rename_collision_409(self, client):
+        first = ingest_note(client, "First")
+        ingest_note(client, "Second")
+        response = client.post("/api/sources/2/title", json={"text": "first"})
+        assert response.status_code == 409
+        assert first == 1
+
+    def test_rename_empty_400(self, client):
+        source_id = ingest_note(client)
+        assert (
+            client.post(f"/api/sources/{source_id}/title", json={"text": "  "}).status_code == 400
+        )
+
+    def test_upload_uses_pdf_metadata_title(self, client, tmp_path):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "content")
+        doc.set_metadata({"title": "Metadata Title Wins"})
+        data = doc.tobytes()
+        doc.close()
+        response = client.post(
+            "/api/ingest/file", files={"file": ("ugly-name.pdf", data, "application/pdf")}
+        )
+        assert response.json()["source"]["title"] == "Metadata Title Wins"

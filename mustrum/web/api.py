@@ -151,6 +151,25 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
         return {"ok": True}
 
+    @app.post("/api/sources/{source_id}/title")
+    async def rename_source(source_id: int, payload: TextPayload) -> dict[str, Any]:
+        import dataclasses
+
+        from mustrum.core.normalize import title_hash
+
+        title = payload.text.strip()
+        if not title:
+            raise HTTPException(400, "title must not be empty")
+        try:
+            source = repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        clash = repo.find_source_by_title_hash(title_hash(title))
+        if clash is not None and clash.id != source_id:
+            raise HTTPException(409, f"another source already has this title: {clash.title}")
+        repo.update_source(dataclasses.replace(source, title=title))
+        return {"ok": True}
+
     @app.post("/api/sources/{source_id}/notes")
     async def set_notes(source_id: int, payload: TextPayload) -> dict[str, Any]:
         try:
@@ -211,17 +230,19 @@ def create_app(
 
     @app.post("/api/ingest/file")
     async def ingest_file(file: UploadFile) -> dict[str, Any]:
-        from mustrum.adapters.pdf import extract_pdf_bytes
+        from mustrum.adapters.pdf import extract_pdf_bytes, pdf_metadata_title_bytes
 
         name = file.filename or "upload"
         data = await file.read()
+        title = None
         if name.lower().endswith(".pdf"):
             text = extract_pdf_bytes(data)
             method = "pymupdf"
+            title = pdf_metadata_title_bytes(data)
         else:
             text = data.decode("utf-8", errors="replace")
             method = "plaintext"
-        title = name.rsplit(".", 1)[0]
+        title = title or name.rsplit(".", 1)[0]
         try:
             result = IngestService(repo, embedder).ingest_document(
                 title=title,

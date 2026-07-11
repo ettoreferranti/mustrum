@@ -103,6 +103,10 @@ def ingest_file(
         _fail(f"no such file: {path}")
     ctx = _context()
     extractor = extractor_for(path)
+    if title is None and path.suffix.lower() == ".pdf":
+        from mustrum.adapters.pdf import pdf_metadata_title
+
+        title = pdf_metadata_title(path)
     try:
         result = IngestService(ctx.repo, ctx.embedder).ingest_document(
             title=title or path.stem,
@@ -144,11 +148,13 @@ def ingest_folder(
     ctx = _context()
     service = IngestService(ctx.repo, ctx.embedder)
     ingested = skipped = failed = 0
+    from mustrum.adapters.pdf import pdf_metadata_title
+
     for pdf in pdfs:
         extractor = extractor_for(pdf)
         try:
             result = service.ingest_document(
-                title=pdf.stem,
+                title=pdf_metadata_title(pdf) or pdf.stem,
                 text=extractor.extract(pdf),
                 extraction_method=extractor.extraction_method,
                 kind=kind,
@@ -330,6 +336,27 @@ def source_delete(
         typer.confirm(f"Delete [{source_id}] {source.title} ({detail})?", abort=True)
     ctx.repo.delete_source(source_id)
     typer.echo(f"deleted [{source_id}] {source.title}")
+
+
+@source_app.command("rename")
+def source_rename(source_id: int, title: str) -> None:
+    """Set a proper title on a source (e.g. one ingested from an ugly file
+    name). Dedup keys and the search index follow the new title."""
+    import dataclasses
+
+    from mustrum.core.normalize import title_hash
+
+    ctx = _context()
+    try:
+        source = ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    clash = ctx.repo.find_source_by_title_hash(title_hash(title))
+    if clash is not None and clash.id != source_id:
+        _fail(f"another source already has this title: [{clash.id}] {clash.title}")
+    ctx.repo.update_source(dataclasses.replace(source, title=title))
+    typer.echo(f"renamed [{source_id}] to: {title}")
 
 
 @source_app.command("status")

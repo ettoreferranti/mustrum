@@ -20,6 +20,8 @@ class Config:
     embed_model: str = "nomic-embed-text"  # ADR-8
     # generation context window; source texts are truncated to fit (chars)
     max_source_chars: int = 16000
+    # Ollama context window in tokens (must comfortably fit max_source_chars)
+    num_ctx: int = 16384
 
 
 def load_config(path: Path | None = None) -> Config:

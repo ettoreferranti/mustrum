@@ -69,7 +69,7 @@ def _context() -> Context:
         config,
         repo,
         OllamaEmbedder(config.embed_model, base_url=config.ollama_url),
-        OllamaLLM(config.llm_model, base_url=config.ollama_url),
+        OllamaLLM(config.llm_model, base_url=config.ollama_url, num_ctx=config.num_ctx),
     )
 
 

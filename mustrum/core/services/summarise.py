@@ -20,7 +20,11 @@ _SYSTEM = (
     "provided; never add outside knowledge. Reply with a single JSON object: "
     '{"summary": "<2-4 sentences: what the authors did and found>", '
     '"quotes": ["<verbatim quote from the text supporting the summary>", ...]} '
-    "Include 2-4 quotes copied EXACTLY, character for character, from the text."
+    "Include 2-4 quotes copied EXACTLY, character for character, from the text. "
+    "Choose quotes that are complete prose sentences or phrases — avoid "
+    "equations, symbol-heavy fragments, tables, and reference lists, because "
+    "extracted PDF text often renders those differently than they appear. "
+    "Output the JSON object immediately, with no preamble and no reasoning."
 )
 
 

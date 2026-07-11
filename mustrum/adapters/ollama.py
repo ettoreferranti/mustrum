@@ -38,10 +38,12 @@ class OllamaLLM:
         base_url: str = "http://localhost:11434",
         timeout: float = 300.0,
         client: httpx.Client | None = None,
+        num_ctx: int = 16384,  # Ollama's default (~4k) silently truncates long prompts
     ) -> None:
         self._model = model
         self._url = base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=timeout)
+        self._num_ctx = num_ctx
 
     @property
     def model_name(self) -> str:
@@ -53,6 +55,7 @@ class OllamaLLM:
             "prompt": prompt,
             "stream": False,
             "think": False,
+            "options": {"num_ctx": self._num_ctx},
         }
         if system is not None:
             payload["system"] = system

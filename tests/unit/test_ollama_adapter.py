@@ -108,3 +108,25 @@ class TestOllamaEmbedder:
 
     def test_model_name(self):
         assert OllamaEmbedder("nomic-embed-text").model_name == "nomic-embed-text"
+
+
+class TestContextWindow:
+    def test_num_ctx_sent_in_options(self):
+        seen = {}
+
+        def handler(request):
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok"})
+
+        OllamaLLM("m", client=mock_client(handler)).generate("p")
+        assert seen["payload"]["options"] == {"num_ctx": 16384}
+
+    def test_num_ctx_configurable(self):
+        seen = {}
+
+        def handler(request):
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok"})
+
+        OllamaLLM("m", client=mock_client(handler), num_ctx=32768).generate("p")
+        assert seen["payload"]["options"] == {"num_ctx": 32768}

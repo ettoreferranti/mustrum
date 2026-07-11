@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mustrum</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --ink: #1e1e1e; --muted: #6b6b6b;
+    --accent: #b5541c; --accent-soft: #f4e3d7; --line: #e2ded6;
+    --ok: #3d7a3d; --warn: #a33; font-size: 15px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #191817; --panel: #232120; --ink: #eceae6; --muted: #9a968e;
+            --accent: #e0946a; --accent-soft: #3a2c22; --line: #37342f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 14px 22px;
+           border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 1.25rem; letter-spacing: .02em; }
+  header .stats { color: var(--muted); font-size: .85rem; }
+  nav { display: flex; gap: 4px; padding: 10px 22px 0; border-bottom: 1px solid var(--line); }
+  nav button { border: 1px solid var(--line); border-bottom: none; background: transparent;
+               color: var(--muted); padding: 8px 16px; border-radius: 8px 8px 0 0;
+               cursor: pointer; font-size: .95rem; }
+  nav button.active { background: var(--panel); color: var(--ink); font-weight: 600; }
+  main { padding: 18px 22px; max-width: 1200px; }
+  .tab { display: none; } .tab.active { display: block; }
+  .row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+  .col { flex: 1 1 380px; min-width: 320px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 1rem; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  button.act { background: var(--accent); color: #fff; border: none; padding: 8px 14px;
+               border-radius: 8px; cursor: pointer; font-size: .9rem; }
+  button.act:disabled { opacity: .5; cursor: wait; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink);
+                 padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: .85rem; }
+  .list-item { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .list-item:hover, .list-item.selected { background: var(--accent-soft); }
+  .list-item .meta { color: var(--muted); font-size: .8rem; }
+  .badge { display: inline-block; background: var(--accent-soft); color: var(--accent);
+           border-radius: 6px; padding: 1px 7px; font-size: .75rem; margin-right: 4px; }
+  .quote { border-left: 3px solid var(--accent); padding: 2px 10px; margin: 6px 0;
+           color: var(--muted); font-style: italic; font-size: .88rem; }
+  .flash { padding: 8px 12px; border-radius: 8px; margin: 8px 0; font-size: .9rem; display: none; }
+  .flash.ok { display: block; background: var(--accent-soft); color: var(--ink); }
+  .flash.err { display: block; background: #d33; color: #fff; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+        padding: 12px; overflow-x: auto; font-size: .82rem; white-space: pre-wrap; }
+  iframe { width: 100%; height: 78vh; border: 1px solid var(--line); border-radius: 10px;
+           background: #fff; }
+  .banner { background: var(--accent-soft); border: 1px dashed var(--accent);
+            border-radius: 8px; padding: 8px 12px; font-size: .85rem; margin-bottom: 10px; }
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .inline input[type=text] { flex: 1; min-width: 160px; width: auto; }
+  .spin::after { content: " ⏳"; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mustrum</h1>
+  <span class="stats" id="stats">loading…</span>
+</header>
+<nav id="nav">
+  <button data-tab="library" class="active">Library</button>
+  <button data-tab="ideas">Ideas &amp; Matching</button>
+  <button data-tab="graph">Graph</button>
+  <button data-tab="brainstorm">Brainstorm</button>
+  <button data-tab="contacts">Contacts</button>
+</nav>
+<main>
+<div class="flash" id="flash"></div>
+
+<section class="tab active" id="tab-library">
+  <div class="row">
+    <div class="col">
+      <div class="card">
+        <h3>Add sources</h3>
+        <div class="inline">
+          <input type="text" id="ingest-id" placeholder="arXiv id or DOI, e.g. 1706.03762">
+          <button class="act" onclick="ingestId()">Fetch</button>
+        </div>
+        <div class="inline">
+          <input type="file" id="ingest-file" accept=".pdf,.txt,.md">
+          <button class="act" onclick="ingestFile()">Upload</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Sources <input type="text" id="lib-search" placeholder="filter / full-text search"
+                            oninput="renderSources()" style="margin-top:6px"></h3>
+        <div id="source-list"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card" id="source-detail"><h3>Select a source</h3>
+        <p class="meta" style="color:var(--muted)">Click a source to see its summary,
+        evidence quotes, and citation key.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="tab-ideas">
+  <div class="row">
+    <div class="col">
+      <div class="card">
+        <h3>New idea</h3>
+        <div class="inline"><input type="text" id="idea-title" placeholder="Title"></div>
+        <textarea id="idea-text" placeholder="Describe the idea (a paragraph works best — it drives the matching)"></textarea>
+        <div style="margin-top:8px"><button class="act" onclick="createIdea()">Create</button></div>
+      </div>
+      <div class="card"><h3>Ideas</h3><div id="idea-list"></div></div>
+      <div class="card"><h3>Gaps</h3><div id="gaps"></div>
+        <button class="ghost" onclick="loadGaps()">Refresh gap report</button></div>
+    </div>
+    <div class="col">
+      <div class="card" id="idea-detail"><h3>Select an idea</h3>
+        <p style="color:var(--muted)">Matching, related-work skeleton, and BibTeX live here.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="tab-graph">
+  <p style="color:var(--muted);margin-top:0">Ideas (orange) with their sources (blue);
+     solid edges are confirmed matches. Same graph as <code>mustrum graph</code>.</p>
+  <iframe id="graph-frame" title="knowledge graph"></iframe>
+</section>
+
+<section class="tab" id="tab-brainstorm">
+  <div class="card" style="max-width:720px">
+    <div class="banner">Creative mode — output is machine-generated and unverified.
+      It cites nothing; “inspired by” only ever shows real library entries.</div>
+    <div class="inline">
+      <label>Ideas <input type="text" id="bs-count" value="3" style="width:50px"></label>
+      <input type="text" id="bs-focus" placeholder="optional focus, e.g. sustainability">
+      <label><input type="checkbox" id="bs-save"> save (tagged “brainstorm”)</label>
+      <button class="act" id="bs-go" onclick="runBrainstorm()">Brainstorm</button>
+    </div>
+    <div id="bs-results"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-contacts">
+  <div class="row">
+    <div class="col">
+      <div class="card">
+        <h3>Add contact</h3>
+        <div class="inline"><input type="text" id="c-name" placeholder="Name"></div>
+        <div class="inline">
+          <select id="c-kind" style="width:auto">
+            <option>person</option><option>university</option>
+            <option>institution</option><option>company</option>
+          </select>
+          <input type="text" id="c-aff" placeholder="Affiliation">
+        </div>
+        <div class="inline"><input type="text" id="c-notes" placeholder="Notes"></div>
+        <button class="act" onclick="addContact()">Add</button>
+      </div>
+    </div>
+    <div class="col"><div class="card"><h3>Contacts</h3><div id="contact-list"></div></div></div>
+  </div>
+</section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let sources = [], ideas = [], selectedSource = null, selectedIdea = null;
+
+function flash(msg, err) {
+  const el = $("flash");
+  el.textContent = msg;
+  el.className = "flash " + (err ? "err" : "ok");
+  setTimeout(() => { el.className = "flash"; }, err ? 8000 : 4000);
+}
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+const post = (path, body) => api(path, {
+  method: "POST", headers: {"Content-Type": "application/json"},
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+async function busy(btn, fn) {
+  btn.disabled = true; btn.classList.add("spin");
+  try { await fn(); } catch (e) { flash(e.message, true); }
+  btn.disabled = false; btn.classList.remove("spin");
+}
+
+// ---- navigation ----
+$("nav").addEventListener("click", e => {
+  if (e.target.dataset.tab === undefined) return;
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  e.target.classList.add("active");
+  $("tab-" + e.target.dataset.tab).classList.add("active");
+  if (e.target.dataset.tab === "graph") $("graph-frame").src = "/graph";
+});
+
+// ---- header stats ----
+async function loadStats() {
+  const s = await api("/api/status");
+  $("stats").textContent =
+    `${s.sources} sources · ${s.ideas} ideas · ${s.confirmed}/${s.matches} matches confirmed` +
+    ` · ${s.llm_model}`;
+}
+
+// ---- library ----
+async function loadSources() {
+  sources = await api("/api/sources");
+  renderSources();
+}
+function renderSources() {
+  const filter = $("lib-search").value.toLowerCase();
+  const items = sources.filter(s =>
+    !filter || s.title.toLowerCase().includes(filter) ||
+    (s.summary && s.summary.text.toLowerCase().includes(filter)));
+  $("source-list").innerHTML = items.map(s => `
+    <div class="list-item ${selectedSource === s.id ? "selected" : ""}"
+         onclick="showSource(${s.id})">
+      <div>${esc(s.title)}</div>
+      <div class="meta">${s.year ?? ""} ${esc((s.authors[0] || ""))}
+        ${s.summary ? "· summarised" : ""} ${s.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</div>
+    </div>`).join("") || "<p style='color:var(--muted)'>No sources yet — add one above.</p>";
+}
+async function showSource(id) {
+  selectedSource = id; renderSources();
+  const s = await api("/api/sources/" + id);
+  $("source-detail").innerHTML = `
+    <h3>${esc(s.title)} ${s.year ? "(" + s.year + ")" : ""}</h3>
+    <p class="meta" style="color:var(--muted)">${esc(s.authors.join(", "))}</p>
+    ${s.citation_key ? `<p><span class="badge">[@${esc(s.citation_key)}]</span></p>` : ""}
+    ${s.doi ? `<p class="meta" style="color:var(--muted)">doi: ${esc(s.doi)}</p>` : ""}
+    <p>text: ${s.has_text ? esc(s.text_kind) : "none"} ·
+      status: <select id="sd-status" onchange="setStatus(${id})">
+        ${["unread","skimmed","read"].map(v =>
+          `<option ${v === s.reading_status ? "selected" : ""}>${v}</option>`).join("")}
+      </select></p>
+    <div id="sd-summary">${s.summary ? `
+      <p>${esc(s.summary.text)}</p>
+      ${s.summary.evidence.map(q => `<div class="quote">“${esc(q)}”</div>`).join("")}
+      <p class="meta" style="color:var(--muted)">summary: ${esc(s.summary.model)}, verified</p>`
+      : "<p style='color:var(--muted)'>No summary yet.</p>"}</div>
+    <button class="act" onclick="busy(this, () => summarise(${id}))">
+      ${s.summary ? "Re-summarise" : "Summarise"}</button>
+    <h3 style="margin-top:14px">Notes</h3>
+    <textarea id="sd-notes">${esc(s.notes)}</textarea>
+    <button class="ghost" onclick="saveNotes(${id})">Save notes</button>`;
+}
+async function setStatus(id) {
+  await post(`/api/sources/${id}/status/` + $("sd-status").value);
+  loadSources();
+}
+async function saveNotes(id) {
+  await post(`/api/sources/${id}/notes`, {text: $("sd-notes").value});
+  flash("notes saved");
+}
+async function summarise(id) {
+  await post(`/api/sources/${id}/summarise?force=true`);
+  await showSource(id); await loadSources();
+  flash("summary generated and verified");
+}
+async function ingestId() {
+  const value = $("ingest-id").value.trim();
+  if (!value) return;
+  const kind = /^10\./.test(value) || value.startsWith("doi:") ? "doi" : "arxiv";
+  const btn = event.target;
+  await busy(btn, async () => {
+    const r = await post("/api/ingest/" + kind, {identifier: value});
+    flash((r.created ? "ingested: " : "merged: ") + r.source.title);
+    $("ingest-id").value = "";
+    await loadSources(); await loadStats();
+  });
+}
+async function ingestFile() {
+  const input = $("ingest-file");
+  if (!input.files.length) return;
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const btn = event.target;
+  await busy(btn, async () => {
+    const res = await fetch("/api/ingest/file", {method: "POST", body: form});
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const r = await res.json();
+    flash((r.created ? "ingested: " : "already known: ") + r.source.title);
+    input.value = "";
+    await loadSources(); await loadStats();
+  });
+}
+
+// ---- ideas & matching ----
+async function loadIdeas() {
+  ideas = await api("/api/ideas");
+  $("idea-list").innerHTML = ideas.map(i => `
+    <div class="list-item ${selectedIdea === i.id ? "selected" : ""}" onclick="showIdea(${i.id})">
+      <div>${esc(i.title)}
+        ${i.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</div>
+      <div class="meta">${esc(i.text.slice(0, 120))}</div>
+    </div>`).join("") || "<p style='color:var(--muted)'>No ideas yet.</p>";
+}
+async function createIdea() {
+  if (!$("idea-title").value.trim() || !$("idea-text").value.trim()) return;
+  await post("/api/ideas", {title: $("idea-title").value, text: $("idea-text").value});
+  $("idea-title").value = ""; $("idea-text").value = "";
+  await loadIdeas(); await loadStats();
+  flash("idea created and embedded");
+}
+async function showIdea(id) {
+  selectedIdea = id; loadIdeas();
+  const idea = ideas.find(i => i.id === id);
+  const matches = await api(`/api/ideas/${id}/matches`);
+  $("idea-detail").innerHTML = `
+    <h3>${esc(idea.title)}</h3>
+    <p>${esc(idea.text)} <span class="meta" style="color:var(--muted)">(v${idea.versions})</span></p>
+    <div class="inline">
+      <button class="act" onclick="busy(this, () => suggest(${id}))">Suggest matches</button>
+      <button class="ghost" onclick="busy(this, () => relatedWork(${id}, 'markdown'))">Related work (md)</button>
+      <button class="ghost" onclick="busy(this, () => relatedWork(${id}, 'latex'))">LaTeX</button>
+      <button class="ghost" onclick="busy(this, () => showBib(${id}))">BibTeX</button>
+    </div>
+    <div id="match-list">${matches.map(matchHtml).join("") ||
+      "<p style='color:var(--muted)'>No matches yet — click Suggest.</p>"}</div>
+    <pre id="rw-output" style="display:none"></pre>`;
+}
+function matchHtml(m) {
+  return `<div class="card" id="match-${m.id}">
+    <b>${esc(m.source_title)}</b>
+    <span class="badge">${m.status}</span> <span class="meta">score ${m.score}</span>
+    ${m.rationale ? `<p>${esc(m.rationale)}</p>` +
+      m.quotes.map(q => `<div class="quote">“${esc(q)}”</div>`).join("") : ""}
+    <div class="inline" style="margin-top:6px">
+      ${m.status === "suggested" ? `
+        <button class="ghost" onclick="busy(this, () => matchAct(${m.id}, 'confirm'))">✓ confirm</button>
+        <button class="ghost" onclick="busy(this, () => matchAct(${m.id}, 'reject'))">✗ reject</button>` : ""}
+      ${!m.rationale ? `
+        <button class="ghost" onclick="busy(this, () => matchAct(${m.id}, 'explain'))">why?</button>` : ""}
+    </div></div>`;
+}
+async function suggest(id) {
+  const created = await post(`/api/ideas/${id}/suggest`, {});
+  flash(created.length + " new suggestions");
+  await showIdea(id);
+}
+async function matchAct(id, action) {
+  await post(`/api/matches/${id}/${action}`);
+  await showIdea(selectedIdea); await loadStats();
+}
+async function relatedWork(id, fmt) {
+  const r = await api(`/api/ideas/${id}/related-work?fmt=${fmt}`);
+  const out = $("rw-output"); out.style.display = "block"; out.textContent = r.text;
+}
+async function showBib(id) {
+  const r = await api(`/api/bib?idea_id=${id}`);
+  const out = $("rw-output"); out.style.display = "block";
+  out.textContent = r.text || "(no confirmed sources yet)";
+}
+async function loadGaps() {
+  const g = await api("/api/gaps");
+  $("gaps").innerHTML =
+    "<p class='meta'>ideas without confirmed support:</p>" +
+    (g.unsupported_ideas.map(i => `<div>· ${esc(i.title)}</div>`).join("") || "<div>—</div>") +
+    "<p class='meta'>sources not matched to any idea:</p>" +
+    (g.orphan_sources.map(s => `<div>· ${esc(s.title)}</div>`).join("") || "<div>—</div>");
+}
+
+// ---- brainstorm ----
+async function runBrainstorm() {
+  const btn = $("bs-go");
+  await busy(btn, async () => {
+    const r = await post("/api/brainstorm", {
+      count: parseInt($("bs-count").value) || 3,
+      focus: $("bs-focus").value,
+      save: $("bs-save").checked,
+    });
+    $("bs-results").innerHTML = r.proposals.map(p => `
+      <div class="card"><b>${esc(p.title)}</b>
+        <p>${esc(p.description)}</p>
+        ${p.inspirations.length ? `<p class="meta">inspired by: ${esc(p.inspirations.join("; "))}</p>` : ""}
+        ${p.saved_id ? `<span class="badge">saved as idea ${p.saved_id}</span>` : ""}
+      </div>`).join("");
+    if (r.proposals.some(p => p.saved_id)) { loadIdeas(); loadStats(); }
+  });
+}
+
+// ---- contacts ----
+async function loadContacts() {
+  const list = await api("/api/contacts");
+  $("contact-list").innerHTML = list.map(c => `
+    <div class="list-item"><b>${esc(c.name)}</b> <span class="badge">${c.kind}</span>
+      <div class="meta">${esc(c.affiliation)} ${esc(c.notes)}</div></div>`).join("")
+    || "<p style='color:var(--muted)'>No contacts yet.</p>";
+}
+async function addContact() {
+  if (!$("c-name").value.trim()) return;
+  await post("/api/contacts", {
+    name: $("c-name").value, kind: $("c-kind").value,
+    affiliation: $("c-aff").value, notes: $("c-notes").value,
+  });
+  $("c-name").value = ""; $("c-aff").value = ""; $("c-notes").value = "";
+  await loadContacts(); await loadStats();
+}
+
+loadStats(); loadSources(); loadIdeas(); loadContacts(); loadGaps();
+</script>
+</body>
+</html>

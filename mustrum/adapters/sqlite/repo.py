@@ -67,7 +67,10 @@ def _fts_query(query: str) -> str:
 
 class SqliteRepo:
     def __init__(self, path: Path | str) -> None:
-        self._conn = sqlite3.connect(str(path))
+        # check_same_thread=False: the web adapter serves from a threadpool;
+        # CPython's sqlite3 is compiled serialized (threadsafety==3), so a
+        # shared connection is safe for this single-user tool
+        self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         apply_migrations(self._conn)

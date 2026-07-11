@@ -11,6 +11,7 @@ from __future__ import annotations
 import httpx
 
 from mustrum.adapters.arxiv import normalize_arxiv_id
+from mustrum.core.models import FetchedMetadata
 
 
 def arxiv_pdf_url(arxiv_id: str) -> str:
@@ -44,3 +45,45 @@ class OpenAccessClient:
         if not content.startswith(b"%PDF"):
             raise ValueError(f"{url} did not return a PDF")
         return content
+
+
+def fetch_full_text(meta: FetchedMetadata, unpaywall_email: str) -> tuple[str, list[str]]:
+    """Try every candidate PDF URL for fetched metadata; shared by CLI and GUI.
+
+    Candidates, in order: arXiv (always open), an Unpaywall open-access copy,
+    then the publisher's Crossref full-text links (succeed only on networks
+    with subscription access). Returns (full_text, notes) — full_text is ''
+    when no candidate worked, notes explain what happened.
+    """
+    from mustrum.adapters.pdf import extract_pdf_bytes
+
+    notes: list[str] = []
+    client = OpenAccessClient(email=unpaywall_email or "unused@localhost")
+    candidates: list[str] = []
+    if meta.arxiv_id:
+        candidates.append(arxiv_pdf_url(meta.arxiv_id))
+    if meta.doi and not meta.arxiv_id:
+        if unpaywall_email:
+            try:
+                if found := client.find_pdf_url(meta.doi):
+                    candidates.append(found)
+            except Exception as exc:
+                notes.append(f"Unpaywall lookup failed ({exc})")
+        else:
+            notes.append(
+                "no unpaywall_email configured — skipping open-access lookup "
+                "(set it in ~/.config/mustrum/config.toml)"
+            )
+    candidates.extend(meta.pdf_urls)
+
+    for url in candidates:
+        try:
+            text = extract_pdf_bytes(client.download_pdf(url))
+        except Exception as exc:
+            notes.append(f"PDF fetch failed from {url} ({exc})")
+            continue
+        notes.append(f"fetched full text from {url}")
+        return text, notes
+    if candidates or meta.doi:
+        notes.append("no downloadable PDF — storing abstract only")
+    return "", notes

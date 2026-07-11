@@ -16,7 +16,8 @@ Crossref, PyMuPDF). The CLI is just another adapter driving the core.
 ```
                  ┌─────────────────────────────────────────┐
    CLI (typer)   │                 CORE                    │
-  ───────────►   │  domain models · services · verifiers   │
+   GUI (FastAPI) │  domain models · services · verifiers   │
+  ───────────►   │                                         │
                  │                                         │
   graph HTML ◄── │  ports:                                 │
   exporter       │   StorageRepo · LLMProvider             │
@@ -57,7 +58,10 @@ mustrum/
     crossref.py      # MetadataFetcher for DOIs (api.crossref.org + doi.org)
     pdf.py           # TextExtractors: PyMuPDF for PDFs, passthrough for text
   cli/               # typer app: ingest, source, idea, match, contact,
-                     #   summarise, bib, related-work, audit, graph, search
+                     #   summarise, bib, related-work, audit, graph, search, ui
+  web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
+                     #   single-page frontend (static/index.html); a second
+                     #   driving adapter beside the CLI — no logic of its own
   graph/             # self-contained HTML export (vendored Cytoscape.js)
 tests/
   unit/  integration/

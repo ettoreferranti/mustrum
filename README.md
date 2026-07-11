@@ -15,6 +15,18 @@ it is saved or emitted.
 
 ## Quickstart
 
+The fastest way in is the local web GUI — one command, opens in your browser:
+
+```sh
+uv run mustrum ui
+```
+
+Library browsing, ingestion (arXiv/DOI/file upload), verified summaries,
+idea matching with explanations, related-work + BibTeX preview, the knowledge
+graph, and brainstorming — all served from localhost, fully self-contained
+(no CDNs, nothing leaves your machine). The GUI is a thin adapter over the
+same services as the CLI: everything it does has a CLI equivalent below.
+
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and
 [Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled.
 
@@ -110,6 +122,7 @@ record instead of duplicating. `--no-pdf` skips full-text download.
 | `mustrum contact link <id> --idea <id>\|--source <id> --why "..."` | Attach contacts with the reason |
 | `mustrum contact list` | Browse contacts |
 | `mustrum brainstorm` | Creative mode: propose NEW research ideas from your library (`-n`, `--focus`, `--save`). Output is labelled machine-generated, cites nothing, and is quarantined from all citation-bearing features |
+| `mustrum ui` | Launch the local web GUI (`--port`, `--no-open`) |
 | `mustrum config` | Show effective configuration (`--init` writes a template) |
 | `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
 | `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |

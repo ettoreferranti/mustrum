@@ -1,0 +1,416 @@
+"""Web GUI adapter: a thin JSON API over the core services (FastAPI).
+
+Strictly a driving adapter like the CLI — no business logic lives here.
+Everything the GUI does is also possible via `mustrum <command>`.
+"""
+
+from __future__ import annotations
+
+from importlib import resources
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from mustrum.config import Config
+from mustrum.core.models import (
+    Contact,
+    ContactKind,
+    EntityKind,
+    MatchStatus,
+    ReadingStatus,
+    Source,
+    SourceKind,
+)
+from mustrum.core.ports import EmbeddingProvider, LLMProvider, StorageRepo
+from mustrum.core.services.brainstorm import BRAINSTORM_TAG, BrainstormFailure, BrainstormService
+from mustrum.core.services.ideas import IdeaService
+from mustrum.core.services.ingest import DuplicateSourceError, IngestService
+from mustrum.core.services.match import MatchService
+from mustrum.core.services.rationale import RationaleFailure, RationaleService
+from mustrum.core.services.relatedwork import RelatedWorkService
+from mustrum.core.services.summarise import GroundingFailure, SummariseService
+
+
+class IngestIdPayload(BaseModel):
+    identifier: str
+
+
+class IdeaPayload(BaseModel):
+    title: str
+    text: str
+
+
+class TextPayload(BaseModel):
+    text: str
+
+
+class SuggestPayload(BaseModel):
+    threshold: float = 0.35
+    limit: int = 20
+
+
+class BrainstormPayload(BaseModel):
+    count: int = 3
+    focus: str = ""
+    save: bool = False
+
+
+class ContactPayload(BaseModel):
+    name: str
+    kind: str = "person"
+    affiliation: str = ""
+    email: str = ""
+    notes: str = ""
+
+
+def _source_json(repo: StorageRepo, source: Source) -> dict[str, Any]:
+    assert source.id is not None
+    summary = repo.get_summary(source.id)
+    bib = repo.get_bib_entry(source.id)
+    text = repo.get_source_text(source.id)
+    return {
+        "id": source.id,
+        "title": source.title,
+        "authors": list(source.authors),
+        "year": source.year,
+        "kind": source.kind.value,
+        "doi": source.doi,
+        "arxiv_id": source.arxiv_id,
+        "reading_status": source.reading_status.value,
+        "notes": source.notes,
+        "tags": sorted(repo.tags_for(EntityKind.SOURCE, source.id)),
+        "citation_key": bib.citation_key if bib else None,
+        "has_text": text is not None,
+        "text_kind": text.extraction_method if text else None,
+        "summary": (
+            {
+                "text": summary.text,
+                "evidence": list(summary.evidence),
+                "model": summary.model,
+                "user_override": summary.user_override,
+            }
+            if summary
+            else None
+        ),
+    }
+
+
+def create_app(
+    repo: StorageRepo,
+    embedder: EmbeddingProvider,
+    llm: LLMProvider,
+    config: Config,
+) -> FastAPI:
+    app = FastAPI(title="Mustrum", docs_url=None, redoc_url=None)
+
+    def summariser() -> SummariseService:
+        return SummariseService(repo, llm, max_source_chars=config.max_source_chars)
+
+    # -- pages ------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index() -> str:
+        return resources.files("mustrum.web").joinpath("static/index.html").read_text()
+
+    @app.get("/graph", response_class=HTMLResponse)
+    async def graph_page() -> str:
+        from mustrum.graph.export import export_graph
+
+        return export_graph(repo)
+
+    # -- sources -------------------------------------------------------------
+
+    @app.get("/api/sources")
+    async def list_sources() -> list[dict[str, Any]]:
+        return [_source_json(repo, s) for s in repo.list_sources()]
+
+    @app.get("/api/sources/{source_id}")
+    async def get_source(source_id: int) -> dict[str, Any]:
+        try:
+            return _source_json(repo, repo.get_source(source_id))
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/sources/{source_id}/status/{status}")
+    async def set_status(source_id: int, status: str) -> dict[str, Any]:
+        try:
+            repo.set_reading_status(source_id, ReadingStatus(status))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/api/sources/{source_id}/notes")
+    async def set_notes(source_id: int, payload: TextPayload) -> dict[str, Any]:
+        try:
+            repo.set_source_notes(source_id, payload.text)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/api/sources/{source_id}/summarise")
+    async def summarise(source_id: int, force: bool = False) -> dict[str, Any]:
+        try:
+            summary = summariser().summarise(source_id, force=force)
+        except (KeyError, LookupError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except GroundingFailure as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"text": summary.text, "evidence": list(summary.evidence)}
+
+    # -- ingestion ---------------------------------------------------------------
+
+    def _ingest_result(result: Any) -> dict[str, Any]:
+        return {
+            "created": result.created,
+            "merged": result.merged,
+            "source": _source_json(repo, result.source),
+        }
+
+    def _ingest_fetched(kind: str, identifier: str) -> dict[str, Any]:
+        from mustrum.adapters.oa import fetch_full_text
+
+        try:
+            if kind == "arxiv":
+                from mustrum.adapters.arxiv import ArxivFetcher
+
+                meta = ArxivFetcher().fetch(identifier)
+            else:
+                from mustrum.adapters.crossref import CrossrefFetcher
+
+                meta = CrossrefFetcher().fetch(identifier)
+        except (LookupError, ValueError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+        full_text, notes = fetch_full_text(meta, config.unpaywall_email)
+        try:
+            result = IngestService(repo, embedder).ingest_fetched(
+                meta, on_duplicate="merge", full_text=full_text
+            )
+        except DuplicateSourceError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**_ingest_result(result), "notes": notes}
+
+    @app.post("/api/ingest/arxiv")
+    async def ingest_arxiv(payload: IngestIdPayload) -> dict[str, Any]:
+        return _ingest_fetched("arxiv", payload.identifier)
+
+    @app.post("/api/ingest/doi")
+    async def ingest_doi(payload: IngestIdPayload) -> dict[str, Any]:
+        return _ingest_fetched("doi", payload.identifier)
+
+    @app.post("/api/ingest/file")
+    async def ingest_file(file: UploadFile) -> dict[str, Any]:
+        from mustrum.adapters.pdf import extract_pdf_bytes
+
+        name = file.filename or "upload"
+        data = await file.read()
+        if name.lower().endswith(".pdf"):
+            text = extract_pdf_bytes(data)
+            method = "pymupdf"
+        else:
+            text = data.decode("utf-8", errors="replace")
+            method = "plaintext"
+        title = name.rsplit(".", 1)[0]
+        try:
+            result = IngestService(repo, embedder).ingest_document(
+                title=title,
+                text=text,
+                extraction_method=method,
+                kind=SourceKind.PAPER,
+                on_duplicate="skip",
+            )
+        except DuplicateSourceError as exc:  # pragma: no cover - skip mode
+            raise HTTPException(409, str(exc)) from exc
+        return _ingest_result(result)
+
+    # -- ideas ---------------------------------------------------------------------
+
+    @app.get("/api/ideas")
+    async def list_ideas() -> list[dict[str, Any]]:
+        out = []
+        for idea in repo.list_ideas():
+            assert idea.id is not None
+            version = repo.latest_idea_version(idea.id)
+            out.append(
+                {
+                    "id": idea.id,
+                    "title": idea.title,
+                    "text": version.text if version else "",
+                    "versions": len(repo.get_idea_versions(idea.id)),
+                    "tags": sorted(repo.tags_for(EntityKind.IDEA, idea.id)),
+                }
+            )
+        return out
+
+    @app.post("/api/ideas")
+    async def create_idea(payload: IdeaPayload) -> dict[str, Any]:
+        idea = IdeaService(repo, embedder).create(payload.title, payload.text)
+        return {"id": idea.id, "title": idea.title}
+
+    @app.post("/api/ideas/{idea_id}/revise")
+    async def revise_idea(idea_id: int, payload: TextPayload) -> dict[str, Any]:
+        try:
+            IdeaService(repo, embedder).revise(idea_id, payload.text)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"ok": True}
+
+    # -- matching -------------------------------------------------------------------
+
+    def _match_json(match: Any) -> dict[str, Any]:
+        source = repo.get_source(match.source_id)
+        return {
+            "id": match.id,
+            "source_id": match.source_id,
+            "source_title": source.title,
+            "score": round(match.score, 3),
+            "status": match.status.value,
+            "rationale": match.rationale,
+            "quotes": list(match.quotes),
+        }
+
+    @app.get("/api/ideas/{idea_id}/matches")
+    async def list_matches(idea_id: int) -> list[dict[str, Any]]:
+        return [_match_json(m) for m in repo.list_matches(idea_id)]
+
+    @app.post("/api/ideas/{idea_id}/suggest")
+    async def suggest(idea_id: int, payload: SuggestPayload) -> list[dict[str, Any]]:
+        service = MatchService(repo, embedder.model_name, threshold=payload.threshold)
+        try:
+            return [_match_json(m) for m in service.suggest(idea_id, limit=payload.limit)]
+        except (KeyError, LookupError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/matches/{match_id}/{action}")
+    async def match_action(match_id: int, action: str) -> dict[str, Any]:
+        service = MatchService(repo, embedder.model_name)
+        try:
+            if action == "confirm":
+                service.confirm(match_id)
+            elif action == "reject":
+                service.reject(match_id)
+            elif action == "explain":
+                rationale = RationaleService(repo, llm, max_source_chars=config.max_source_chars)
+                return _match_json(rationale.explain(match_id))
+            else:
+                raise HTTPException(400, f"unknown action {action!r}")
+        except (KeyError, LookupError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except RationaleFailure as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"ok": True}
+
+    # -- writing, search, misc ---------------------------------------------------------
+
+    @app.get("/api/ideas/{idea_id}/related-work")
+    async def related_work(idea_id: int, fmt: str = "markdown") -> dict[str, Any]:
+        if fmt not in ("markdown", "latex"):
+            raise HTTPException(400, "fmt must be markdown or latex")
+        try:
+            text = RelatedWorkService(repo).skeleton(idea_id, fmt)  # type: ignore[arg-type]
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"text": text}
+
+    @app.get("/api/bib")
+    async def bib(idea_id: int | None = None) -> dict[str, Any]:
+        try:
+            return {"text": RelatedWorkService(repo).export_bib(idea_id)}
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/search")
+    async def search(q: str) -> list[dict[str, Any]]:
+        return [
+            {"entity": hit.entity.value, "ref_id": hit.ref_id, "snippet": hit.snippet}
+            for hit in repo.search(q)
+        ]
+
+    @app.get("/api/gaps")
+    async def gaps() -> dict[str, Any]:
+        report = MatchService(repo, embedder.model_name).gap_report()
+        return {
+            "unsupported_ideas": [
+                {"id": i, "title": repo.get_idea(i).title} for i in report.unsupported_ideas
+            ],
+            "orphan_sources": [
+                {"id": s, "title": repo.get_source(s).title} for s in report.orphan_sources
+            ],
+        }
+
+    @app.post("/api/brainstorm")
+    async def brainstorm(payload: BrainstormPayload) -> dict[str, Any]:
+        service = BrainstormService(repo, llm)
+        try:
+            proposals = service.propose(count=payload.count, focus=payload.focus)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except BrainstormFailure as exc:
+            raise HTTPException(422, str(exc)) from exc
+        idea_service = IdeaService(repo, embedder)
+        out = []
+        for proposal in proposals:
+            saved_id = None
+            if payload.save:
+                idea = idea_service.create(proposal.title, proposal.description)
+                assert idea.id is not None
+                repo.tag(EntityKind.IDEA, idea.id, BRAINSTORM_TAG)
+                saved_id = idea.id
+            out.append(
+                {
+                    "title": proposal.title,
+                    "description": proposal.description,
+                    "inspirations": list(proposal.inspirations),
+                    "saved_id": saved_id,
+                }
+            )
+        return {"proposals": out}
+
+    @app.get("/api/contacts")
+    async def contacts() -> list[dict[str, Any]]:
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "kind": c.kind.value,
+                "affiliation": c.affiliation,
+                "email": c.email,
+                "notes": c.notes,
+            }
+            for c in repo.list_contacts()
+        ]
+
+    @app.post("/api/contacts")
+    async def add_contact(payload: ContactPayload) -> dict[str, Any]:
+        try:
+            kind = ContactKind(payload.kind)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        contact = repo.add_contact(
+            Contact(
+                name=payload.name,
+                kind=kind,
+                affiliation=payload.affiliation,
+                email=payload.email,
+                notes=payload.notes,
+            )
+        )
+        return {"id": contact.id}
+
+    @app.get("/api/status")
+    async def status() -> dict[str, Any]:
+        matches = repo.list_matches()
+        return {
+            "sources": len(repo.list_sources()),
+            "ideas": len(repo.list_ideas()),
+            "matches": len(matches),
+            "confirmed": sum(1 for m in matches if m.status == MatchStatus.CONFIRMED),
+            "contacts": len(repo.list_contacts()),
+            "llm_model": llm.model_name,
+            "embed_model": embedder.model_name,
+        }
+
+    return app

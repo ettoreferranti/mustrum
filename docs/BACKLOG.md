@@ -89,6 +89,13 @@ stories at the bottom of the relevant epic.
 | E9-4 | Zotero import | C | todo |
 | E9-5 | Contact import (vCard/CSV) — OQ-2 | C | todo |
 
+## GUI
+
+| ID | Story | Prio | Status |
+|---|---|---|---|
+| E11-1 | Local web GUI (`mustrum ui`): FastAPI JSON adapter + self-contained single-page frontend covering ingest, sources, summaries, matching, related-work, graph, brainstorm, contacts | S | done |
+| E11-2 | GUI: source attach/upload to existing record, tags editing, contact links, audit upload | C | todo |
+
 ## Phase 3 — Anthropic provider
 
 | ID | Story | Prio | Status |

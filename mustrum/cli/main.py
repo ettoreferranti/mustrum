@@ -174,46 +174,16 @@ def ingest_folder(
 
 
 def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> str:
-    """Download and extract the paper's PDF if any candidate URL works.
+    """Shared PDF-candidate logic lives in adapters/oa.py; this just reports."""
+    from mustrum.adapters.oa import fetch_full_text
 
-    Candidates, in order: arXiv (always open), an Unpaywall open-access copy,
-    then the publisher's Crossref full-text links — the last succeed only on
-    networks with subscription access (e.g. a university network). '' means
-    fall back to the abstract.
-    """
-    from mustrum.adapters.oa import OpenAccessClient, arxiv_pdf_url
-    from mustrum.adapters.pdf import extract_pdf_bytes
-
-    client = OpenAccessClient(email=ctx.config.unpaywall_email or "unused@localhost")
-    candidates: list[str] = []
-    if meta.arxiv_id:
-        candidates.append(arxiv_pdf_url(meta.arxiv_id))
-    if meta.doi and not meta.arxiv_id:
-        if ctx.config.unpaywall_email:
-            try:
-                if found := client.find_pdf_url(meta.doi):
-                    candidates.append(found)
-            except Exception as exc:
-                typer.secho(f"Unpaywall lookup failed ({exc})", fg=typer.colors.YELLOW)
+    text, notes = fetch_full_text(meta, ctx.config.unpaywall_email)
+    for note in notes:
+        if note.startswith("fetched"):
+            typer.echo(note)
         else:
-            typer.secho(
-                "no unpaywall_email configured — skipping open-access lookup "
-                "(set it in ~/.config/mustrum/config.toml)",
-                fg=typer.colors.YELLOW,
-            )
-    candidates.extend(meta.pdf_urls)
-
-    for url in candidates:
-        try:
-            text = extract_pdf_bytes(client.download_pdf(url))
-        except Exception as exc:
-            typer.secho(f"PDF fetch failed from {url} ({exc})", fg=typer.colors.YELLOW)
-            continue
-        typer.echo(f"fetched full text from {url}")
-        return text
-    if candidates or meta.doi:
-        typer.secho("no downloadable PDF — storing abstract only", fg=typer.colors.YELLOW)
-    return ""
+            typer.secho(note, fg=typer.colors.YELLOW)
+    return text
 
 
 def _ingest_fetched(
@@ -716,6 +686,26 @@ def graph(
     typer.echo(f"wrote {out}")
     if open_browser:
         webbrowser.open(out.resolve().as_uri())
+
+
+@app.command("ui")
+def ui(
+    port: Annotated[int, typer.Option("--port")] = 8765,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+) -> None:
+    """Launch the local web GUI (a second adapter over the same services —
+    everything it does is also available as CLI commands)."""
+    import uvicorn
+
+    from mustrum.web.api import create_app
+
+    ctx = _context()
+    web_app = create_app(ctx.repo, ctx.embedder, ctx.llm, ctx.config)
+    url = f"http://127.0.0.1:{port}"
+    typer.echo(f"Mustrum UI at {url} (Ctrl+C to stop)")
+    if open_browser:
+        webbrowser.open(url)
+    uvicorn.run(web_app, host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command("brainstorm")

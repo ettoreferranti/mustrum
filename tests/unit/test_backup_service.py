@@ -63,6 +63,10 @@ def build_rich_library(repo):
     )
     repo.set_reading_status(fetched.id, ReadingStatus.READ)
     repo.set_source_notes(fetched.id, "great baselines")
+    import dataclasses
+
+    fetched = dataclasses.replace(repo.get_source(fetched.id), file_path="0002-graphs.pdf")
+    repo.update_source(fetched)
     repo.tag(EntityKind.SOURCE, fetched.id, "gnn")
     repo.tag(EntityKind.SOURCE, fetched.id, "chemistry")
     idea_a = ideas.create("molecular ML", "first draft")
@@ -170,6 +174,9 @@ class TestRoundTrip:
         assert fetched.doi == "10.1/graphs"
         assert fetched.reading_status == ReadingStatus.READ
         assert fetched.notes == "great baselines"
+        # archived-original pointer survives the round trip (E1-11)
+        assert fetched.file_path == "0002-graphs.pdf"
+        assert sources["Manual notes on distillation"].file_path is None
         assert dict(fetched.provenance)["title"].value == "fetched"
         assert target.tags_for(EntityKind.SOURCE, fetched.id) == {"gnn", "chemistry"}
         # verbatim text + summary + bib

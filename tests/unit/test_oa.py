@@ -4,8 +4,9 @@ import httpx
 import pymupdf
 import pytest
 
-from mustrum.adapters.oa import OpenAccessClient, arxiv_pdf_url
+from mustrum.adapters.oa import OpenAccessClient, arxiv_pdf_url, fetch_full_text
 from mustrum.adapters.pdf import extract_pdf_bytes
+from mustrum.core.models import FetchedMetadata
 
 
 def pdf_bytes(text="hello from a pdf"):
@@ -84,3 +85,42 @@ class TestOpenAccessClient:
 class TestExtractPdfBytes:
     def test_extracts_text_from_stream(self):
         assert "hello from a pdf" in extract_pdf_bytes(pdf_bytes())
+
+
+def make_meta(**overrides):
+    defaults = dict(
+        title="T", authors=("A",), year=2020, doi=None, arxiv_id=None, raw_bibtex="@misc{t,}"
+    )
+    defaults.update(overrides)
+    return FetchedMetadata(**defaults)
+
+
+class TestFetchFullText:
+    """fetch_full_text keeps the raw PDF bytes for the file archive (E1-11)."""
+
+    def _patch_client(self, monkeypatch, data):
+        class FakeClient:
+            def __init__(self, email, client=None):
+                pass
+
+            def find_pdf_url(self, doi):
+                return None
+
+            def download_pdf(self, url):
+                return data
+
+        monkeypatch.setattr("mustrum.adapters.oa.OpenAccessClient", FakeClient)
+
+    def test_success_returns_text_and_pdf_bytes(self, monkeypatch):
+        data = pdf_bytes()
+        self._patch_client(monkeypatch, data)
+        result = fetch_full_text(make_meta(arxiv_id="1706.03762"), "")
+        assert "hello from a pdf" in result.text
+        assert result.pdf_bytes == data
+        assert any(note.startswith("fetched") for note in result.notes)
+
+    def test_no_candidates_returns_empty_result(self, monkeypatch):
+        self._patch_client(monkeypatch, b"never used")
+        result = fetch_full_text(make_meta(), "")
+        assert result.text == ""
+        assert result.pdf_bytes is None

@@ -74,6 +74,8 @@ class Source:
     provenance: tuple[tuple[str, FieldOrigin], ...] = ()  # (field_name, origin)
     reading_status: ReadingStatus = ReadingStatus.UNREAD
     notes: str = ""
+    # archived original (PDF/text), file name relative to the files dir (ADR-13)
+    file_path: str | None = None
     created_at: datetime = field(default_factory=utcnow)
     id: int | None = None
 

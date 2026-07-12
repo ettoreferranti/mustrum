@@ -6,9 +6,12 @@ import os
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
+
+if TYPE_CHECKING:
+    from mustrum.adapters.oa import FullTextResult
 
 from mustrum.adapters.fake import FakeEmbeddingProvider, FakeLLMProvider
 from mustrum.adapters.ollama import OllamaEmbedder, OllamaLLM
@@ -120,6 +123,7 @@ def ingest_file(
     except DuplicateSourceError as exc:
         _fail(f"{exc}\nUse --on-duplicate skip|merge to resolve.")
         return
+    _archive_ingested(ctx, result.source, path)
     verb = (
         "merged into"
         if result.merged
@@ -127,6 +131,18 @@ def ingest_file(
     )
     typer.echo(f"{verb} ", nl=False)
     _print_source(result.source)
+
+
+def _archive_ingested(ctx: Context, source: Source, path: Path) -> None:
+    """Keep the ingested original in the files dir (E1-11). Fills the gap for
+    sources that don't have an archived original yet; never replaces one."""
+    from mustrum.adapters.archive import archive_original
+
+    if source.file_path is not None or source.id is None:
+        return
+    archive_original(
+        ctx.repo, ctx.config.files_dir, source, path.read_bytes(), path.suffix or ".txt"
+    )
 
 
 @ingest_app.command("folder")
@@ -168,6 +184,7 @@ def ingest_folder(
             typer.secho(f"failed: {pdf.name}: {exc}", fg=typer.colors.RED, err=True)
             failed += 1
             continue
+        _archive_ingested(ctx, result.source, pdf)
         if result.created:
             ingested += 1
             typer.echo(f"ingested [{result.source.id}] {result.source.title}")
@@ -179,38 +196,43 @@ def ingest_folder(
         raise typer.Exit(code=1)
 
 
-def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> str:
+def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> FullTextResult:
     """Shared PDF-candidate logic lives in adapters/oa.py; this just reports."""
     from mustrum.adapters.oa import fetch_full_text
 
-    text, notes = fetch_full_text(meta, ctx.config.unpaywall_email)
-    for note in notes:
+    result = fetch_full_text(meta, ctx.config.unpaywall_email)
+    for note in result.notes:
         if note.startswith("fetched"):
             typer.echo(note)
         else:
             typer.secho(note, fg=typer.colors.YELLOW)
-    return text
+    return result
 
 
 def _ingest_fetched(
     identifier: str, fetcher: MetadataFetcher, on_duplicate: str, fetch_pdf: bool
 ) -> None:
+    from mustrum.adapters.archive import archive_original
+    from mustrum.adapters.oa import FullTextResult
+
     ctx = _context()
     try:
         meta = fetcher.fetch(identifier)
     except (LookupError, ValueError) as exc:
         _fail(str(exc))
         return
-    full_text = _fetch_full_text(ctx, meta) if fetch_pdf else ""
+    full_text = _fetch_full_text(ctx, meta) if fetch_pdf else FullTextResult()
     try:
         result = IngestService(ctx.repo, ctx.embedder).ingest_fetched(
             meta,
             on_duplicate=on_duplicate,  # type: ignore[arg-type]
-            full_text=full_text,
+            full_text=full_text.text,
         )
     except DuplicateSourceError as exc:
         _fail(f"{exc}\nUse --on-duplicate skip|merge to resolve.")
         return
+    if full_text.pdf_bytes and result.source.file_path is None and result.source.id is not None:
+        archive_original(ctx.repo, ctx.config.files_dir, result.source, full_text.pdf_bytes, ".pdf")
     verb = (
         "merged into"
         if result.merged
@@ -276,6 +298,8 @@ def source_show(source_id: int) -> None:
         if getattr(source, field):
             typer.echo(f"{field}: {getattr(source, field)}")
     typer.echo(f"status: {source.reading_status.value}")
+    if source.file_path:
+        typer.echo(f"file: {ctx.config.files_dir / source.file_path}")
     tags = ctx.repo.tags_for(EntityKind.SOURCE, source_id)
     if tags:
         typer.echo(f"tags: {', '.join(sorted(tags))}")
@@ -307,7 +331,20 @@ def source_attach(source_id: int, path: Path) -> None:
     except (KeyError, ValueError) as exc:
         _fail(str(exc))
         return
+    # the attached file is now the source's original — archive it (replacing
+    # any earlier archived original, E1-11)
+    from mustrum.adapters.archive import archive_original
+
+    updated = archive_original(
+        ctx.repo,
+        ctx.config.files_dir,
+        ctx.repo.get_source(source_id),
+        path.read_bytes(),
+        path.suffix or ".txt",
+    )
+    assert updated.file_path is not None
     typer.echo(f"attached full text to [{source_id}]")
+    typer.echo(f"archived original: {ctx.config.files_dir / updated.file_path}")
     if had_summary:
         typer.secho(
             f"summary invalidated — run: mustrum summarise {source_id}", fg=typer.colors.YELLOW
@@ -335,7 +372,33 @@ def source_delete(
         )
         typer.confirm(f"Delete [{source_id}] {source.title} ({detail})?", abort=True)
     ctx.repo.delete_source(source_id)
+    from mustrum.adapters.archive import delete_archived
+
+    delete_archived(ctx.config.files_dir, source)
     typer.echo(f"deleted [{source_id}] {source.title}")
+
+
+@source_app.command("open")
+def source_open(source_id: int) -> None:
+    """Open a source's archived original file (PDF/text) with the default
+    application. Originals live in a `files/` directory next to the DB."""
+    from mustrum.adapters.archive import archived_file
+
+    ctx = _context()
+    try:
+        source = ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    path = archived_file(ctx.config.files_dir, source)
+    if path is None:
+        _fail(
+            f"no archived file for [{source_id}] {source.title} — "
+            f"attach one with: mustrum source attach {source_id} FILE"
+        )
+        return
+    typer.launch(str(path))
+    typer.echo(f"opened {path}")
 
 
 @source_app.command("rename")
@@ -919,6 +982,8 @@ _CONFIG_TEMPLATE = """\
 #   db_path = "~/Library/Mobile Documents/com~apple~CloudDocs/mustrum/mustrum.db"
 #   db_path = "~/OneDrive/mustrum/mustrum.db"
 # Never run mustrum from two machines against the same synced file at once.
+# Original files (ingested/fetched PDFs) are archived in a `files/` directory
+# next to the database, so backing up the db_path folder captures everything.
 #db_path = "~/.mustrum/mustrum.db"
 
 #ollama_url = "http://localhost:11434"
@@ -957,6 +1022,7 @@ def config_cmd(
     state = "present" if config_path.is_file() else "absent — defaults in effect"
     typer.echo(f"config file:      {config_path} ({state})")
     typer.echo(f"db_path:          {config.db_path}")
+    typer.echo(f"files_dir:        {config.files_dir} (originals archive, follows db_path)")
     typer.echo(f"ollama_url:       {config.ollama_url}")
     typer.echo(f"llm_model:        {config.llm_model}")
     typer.echo(f"embed_model:      {config.embed_model}")

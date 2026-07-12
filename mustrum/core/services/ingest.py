@@ -228,6 +228,7 @@ class IngestService:
             provenance=tuple(provenance.items()),
             reading_status=existing.reading_status,
             notes=existing.notes,
+            file_path=existing.file_path,
             created_at=existing.created_at,
             id=existing.id,
         )

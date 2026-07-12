@@ -6,13 +6,15 @@ Everything the GUI does is also possible via `mustrum <command>`.
 
 from __future__ import annotations
 
+import dataclasses
 from importlib import resources
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from mustrum.adapters.archive import archive_original, archived_file, delete_archived
 from mustrum.config import Config
 from mustrum.core.models import (
     Contact,
@@ -84,6 +86,7 @@ def _source_json(repo: StorageRepo, source: Source) -> dict[str, Any]:
         "citation_key": bib.citation_key if bib else None,
         "has_text": text is not None,
         "text_kind": text.extraction_method if text else None,
+        "file_name": source.file_path,
         "summary": (
             {
                 "text": summary.text,
@@ -136,10 +139,27 @@ def create_app(
     @app.delete("/api/sources/{source_id}")
     async def delete_source(source_id: int) -> dict[str, Any]:
         try:
+            source = repo.get_source(source_id)
             repo.delete_source(source_id)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
+        delete_archived(config.files_dir, source)
         return {"ok": True}
+
+    @app.get("/api/sources/{source_id}/file")
+    async def source_file(source_id: int) -> FileResponse:
+        try:
+            source = repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        path = archived_file(config.files_dir, source)
+        if path is None:
+            raise HTTPException(404, f"no archived file for source {source_id}")
+        media = "application/pdf" if path.suffix == ".pdf" else "text/plain"
+        # inline: the GUI's "Open PDF" opens a tab that should display, not download
+        return FileResponse(
+            path, media_type=media, filename=path.name, content_disposition_type="inline"
+        )
 
     @app.post("/api/sources/{source_id}/status/{status}")
     async def set_status(source_id: int, status: str) -> dict[str, Any]:
@@ -223,14 +243,19 @@ def create_app(
                 meta = CrossrefFetcher().fetch(identifier)
         except (LookupError, ValueError) as exc:
             raise HTTPException(404, str(exc)) from exc
-        full_text, notes = fetch_full_text(meta, config.unpaywall_email)
+        full_text = fetch_full_text(meta, config.unpaywall_email)
         try:
             result = IngestService(repo, embedder).ingest_fetched(
-                meta, on_duplicate="merge", full_text=full_text
+                meta, on_duplicate="merge", full_text=full_text.text
             )
         except DuplicateSourceError as exc:
             raise HTTPException(409, str(exc)) from exc
-        return {**_ingest_result(result), "notes": notes}
+        if full_text.pdf_bytes and result.source.file_path is None and result.source.id is not None:
+            archived = archive_original(
+                repo, config.files_dir, result.source, full_text.pdf_bytes, ".pdf"
+            )
+            result = dataclasses.replace(result, source=archived)
+        return {**_ingest_result(result), "notes": full_text.notes}
 
     @app.post("/api/ingest/arxiv")
     async def ingest_arxiv(payload: IngestIdPayload) -> dict[str, Any]:
@@ -265,6 +290,10 @@ def create_app(
             )
         except DuplicateSourceError as exc:  # pragma: no cover - skip mode
             raise HTTPException(409, str(exc)) from exc
+        if result.source.file_path is None and result.source.id is not None:
+            suffix = "." + name.rsplit(".", 1)[1].lower() if "." in name else ".txt"
+            archived = archive_original(repo, config.files_dir, result.source, data, suffix)
+            result = dataclasses.replace(result, source=archived)
         return _ingest_result(result)
 
     # -- ideas ---------------------------------------------------------------------

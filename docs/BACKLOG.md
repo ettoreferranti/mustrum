@@ -82,6 +82,7 @@ stories at the bottom of the relevant epic.
 | E8-5 | `source enrich`: complete bare PDF sources via exact-title Crossref lookup; citation-key collision dedup (ADR-12) | S | done |
 | E8-4 | Proper source titles: PDF-metadata titles at ingest (HTML entities decoded, junk heuristics), `source rename` + GUI rename, list overflow/meta-line polish | S | done |
 | E8-3 | Delete sources/ideas with full cascade (CLI `--yes` guard, GUI confirm, API DELETE) — found via GUI testing | S | done |
+| E8-6 | Manual metadata for DOI-less venues (e.g. CEUR-WS, not in Crossref): `source edit ID --author --year` with USER provenance + GUI authors/year button (`POST /api/sources/{id}/metadata`); enrich failure message points at it — found when a PoEM-C 2025 CEUR paper could never match | S | done |
 
 ## Phase 2 — Longevity & polish
 

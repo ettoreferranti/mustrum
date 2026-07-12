@@ -254,7 +254,9 @@ async function showSource(id) {
   $("source-detail").innerHTML = `
     <h3>${esc(s.title)} ${s.year ? "(" + s.year + ")" : ""}
       <button class="ghost" title="rename" style="font-size:.75rem;padding:2px 8px"
-        onclick="renameSource(${id})">rename</button></h3>
+        onclick="renameSource(${id})">rename</button>
+      <button class="ghost" title="set authors/year by hand (for venues without DOIs, e.g. CEUR-WS)"
+        style="font-size:.75rem;padding:2px 8px" onclick="editMeta(${id})">authors/year</button></h3>
     <p class="meta" style="color:var(--muted)">${esc(s.authors.join(", "))}</p>
     ${s.citation_key ? `<p><span class="badge">[@${esc(s.citation_key)}]</span></p>` : ""}
     ${s.doi ? `<p class="meta" style="color:var(--muted)">doi: ${esc(s.doi)}</p>` : ""}
@@ -304,6 +306,23 @@ async function renameSource(id) {
   } catch (e) { flash(e.message, true); return; }
   await loadSources(); await showSource(id);
   flash("renamed");
+}
+async function editMeta(id) {
+  const s = sources.find(x => x.id === id) || await api("/api/sources/" + id);
+  const authors = prompt("Authors (comma-separated):", s.authors.join(", "));
+  if (authors === null) return;
+  const year = prompt("Year:", s.year ?? "");
+  if (year === null) return;
+  const parsed = year.trim() ? parseInt(year.trim(), 10) : null;
+  if (year.trim() && isNaN(parsed)) { flash("year must be a number", true); return; }
+  try {
+    await post(`/api/sources/${id}/metadata`, {
+      authors: authors.split(",").map(a => a.trim()).filter(Boolean),
+      year: parsed,
+    });
+  } catch (e) { flash(e.message, true); return; }
+  await loadSources(); await showSource(id);
+  flash("metadata updated");
 }
 async function deleteSource(id) {
   const s = sources.find(x => x.id === id);

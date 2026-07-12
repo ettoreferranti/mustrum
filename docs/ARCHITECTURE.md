@@ -2,8 +2,9 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-11 (Phase 1 implemented: all services, Ollama +
-> ingestion adapters, graph export, CLI).
+> Last updated: 2026-07-12 (E1-11: original-file archive — schema v2
+> `Source.file_path`, `adapters/archive.py`, `source open`, GUI file
+> endpoint).
 
 ## 1. Overview
 
@@ -57,6 +58,8 @@ mustrum/
     arxiv.py         # MetadataFetcher for arXiv IDs (Atom API + /bibtex)
     crossref.py      # MetadataFetcher for DOIs (api.crossref.org + doi.org)
     pdf.py           # TextExtractors: PyMuPDF for PDFs, passthrough for text
+    archive.py       # original-file archive: visible files/ dir next to the
+                     #   DB, one backup unit with it (ADR-13); shared by CLI+GUI
   cli/               # typer app: ingest, source, idea, match, contact,
                      #   summarise, bib, related-work, audit, graph, search, ui
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
@@ -81,13 +84,14 @@ Implementation notes (v1 schema, `adapters/sqlite/`):
   re-indexed per entity on write. User queries are token-quoted so FTS5
   syntax can't be injected.
 - Migrations: append-only list in `schema.py`, tracked via PRAGMA
-  user_version.
+  user_version. v2 (E1-11) adds `sources.file_path` — the archived original's
+  file name relative to the `files/` directory next to the DB.
 
 ## 3. Domain model
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `Source` | id, kind (paper/article/note), title, authors, year, doi, arxiv_id, provenance per field | metadata record |
+| `Source` | id, kind (paper/article/note), title, authors, year, doi, arxiv_id, provenance per field, file_path (archived original, ADR-13) | metadata record |
 | `SourceText` | source_id, verbatim extracted/ingested text, extraction method | **immutable** after ingest |
 | `Summary` | source_id, text, evidence quotes[], model, created_at, verified flag, user_override | only stored if verification passes |
 | `Idea` | id, title, current_version_id | |
@@ -146,9 +150,13 @@ strictest test bar in the project (see §7).
 
 - **Ingest PDF:** extract text → dedup check (DOI/arXiv/title-hash) → store
   Source + immutable SourceText → chunk + embed → (optional) grounded
-  summarisation → verify → store Summary.
+  summarisation → verify → store Summary. The original file is then archived
+  by the driving adapter (CLI/GUI) into `files/` next to the DB and its name
+  recorded on the source (`mustrum source open` / GUI "Open PDF" serve it);
+  re-ingesting a known paper backfills a missing archive entry, never
+  replaces one. Deleting a source removes its archived file with the cascade.
 - **Ingest arXiv/DOI:** fetch metadata + BibTeX → same pipeline; fetched
-  fields marked authoritative.
+  fields marked authoritative; a downloaded PDF is archived the same way.
 - **New idea / new version:** store version → embed → match against all source
   embeddings → present ranked suggestions → user confirms/rejects. On demand
   (`match explain`), an LLM rationale grounded in verified quotes is attached
@@ -170,7 +178,9 @@ strictest test bar in the project (see §7).
   (canonical JSON + verbatim texts + byte-exact .bib + generated Markdown
   views); `restore` rebuilds an empty DB from it, remapping ids and
   recomputing embeddings. Invariant: export → restore → export is
-  byte-identical.
+  byte-identical. Archived originals are binary and stay out of the text
+  bundle; `file_path` round-trips so a restored DB finds a copied `files/`
+  directory again.
 
 ## 7. Testing strategy
 
@@ -206,4 +216,7 @@ Architecture decisions and their rationale are recorded in
 [DECISIONS.md](DECISIONS.md). Current: ADR-1 Python, ADR-2 SQLite(+FTS5),
 ADR-3 CLI + self-contained HTML graph, ADR-4 Ollama for both LLM and
 embeddings in phase 1, ADR-5 hexagonal provider interface, ADR-6 mutmut,
-ADR-7 immutable source texts + grounded generation.
+ADR-7 immutable source texts + grounded generation, ADR-8 model defaults,
+ADR-9 abstract→full-text upgrade, ADR-10 quote normalisation, ADR-11
+deletion as a user right, ADR-12 citation-key collision suffixes, ADR-13
+original-file archive next to the DB.

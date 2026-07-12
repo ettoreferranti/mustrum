@@ -92,3 +92,19 @@ a/b/c… suffix, rewritten both in the citation_key column and — the sole
 sanctioned amendment to fetched BibTeX — in the key token of the raw entry,
 keeping the two byte-identical in what they cite. All other bytes of the
 fetched entry remain untouched.
+
+## ADR-13 — Originals archived in a visible files/ directory next to the DB (2026-07-12, accepted)
+Extracted text is what the rigour kernel verifies against, but the original
+PDF is what a human wants to read. Every ingested or fetched original is
+therefore copied into `files/` — a deliberately non-hidden directory that
+sits beside the SQLite database, so DB + originals form a single backup/sync
+unit. The DB stores only the file name relative to that directory
+(`sources.file_path`, schema v2), keeping the pair relocatable as a whole.
+Names are `<id>-<title-slug><ext>` (id guarantees uniqueness, slug gives
+readability). All archive file I/O lives in `adapters/archive.py` — core
+services stay filesystem-free; the CLI and GUI adapters call it after ingest,
+attach, and delete. Re-ingesting a known paper backfills a missing archive
+entry but never replaces an existing one (attach, which explicitly supplies a
+new original, does replace). The plain-file export (E9-1) stays text-only:
+originals are not bundled, but `file_path` round-trips so a restored DB finds
+a copied `files/` directory again.

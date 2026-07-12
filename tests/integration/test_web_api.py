@@ -194,6 +194,46 @@ class TestBrainstormAndContacts:
         assert client.post("/api/contacts", json={"name": "X", "kind": "wizard"}).status_code == 400
 
 
+class TestFileArchive:
+    """E1-11: uploads are archived next to the DB and served back."""
+
+    def test_upload_archives_and_serves_file(self, client, tmp_path):
+        source_id = ingest_note(client)
+        data = client.get(f"/api/sources/{source_id}").json()
+        assert data["file_name"] == "0001-Graph-networks.md"
+        assert (tmp_path / "files" / "0001-Graph-networks.md").is_file()
+        response = client.get(f"/api/sources/{source_id}/file")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/plain")
+        assert response.content == NOTE_TEXT.encode()
+
+    def test_pdf_upload_served_as_pdf(self, client):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "content")
+        data = doc.tobytes()
+        doc.close()
+        response = client.post(
+            "/api/ingest/file", files={"file": ("paper.pdf", data, "application/pdf")}
+        )
+        source_id = response.json()["source"]["id"]
+        served = client.get(f"/api/sources/{source_id}/file")
+        assert served.headers["content-type"] == "application/pdf"
+        assert served.content.startswith(b"%PDF")
+
+    def test_file_endpoint_404s(self, client, tmp_path):
+        assert client.get("/api/sources/99/file").status_code == 404
+        source_id = ingest_note(client)
+        (tmp_path / "files" / "0001-Graph-networks.md").unlink()
+        assert client.get(f"/api/sources/{source_id}/file").status_code == 404
+
+    def test_delete_removes_archived_file(self, client, tmp_path):
+        source_id = ingest_note(client)
+        assert client.delete(f"/api/sources/{source_id}").status_code == 200
+        assert list((tmp_path / "files").iterdir()) == []
+
+
 class TestDelete:
     def test_delete_source_cascades(self, client):
         source_id = ingest_note(client)

@@ -14,6 +14,10 @@ Layout of an export (paths are keys of the bundle mapping):
 
 Embeddings are derived data and are NOT exported; restore recomputes them.
 Restore only targets an empty database — there are no merge semantics.
+
+Archived originals (the `files/` directory next to the DB, ADR-13) are binary
+and NOT part of this text export; copy that directory alongside. Source
+records keep their `file_path` so a restored DB finds the copied files again.
 """
 
 from __future__ import annotations
@@ -131,6 +135,7 @@ class BackupService:
                 "provenance": {f: o.value for f, o in source.provenance},
                 "reading_status": source.reading_status.value,
                 "notes": source.notes,
+                "file_path": source.file_path,
                 "created_at": source.created_at.isoformat(),
                 "tags": sorted(self._repo.tags_for(EntityKind.SOURCE, source.id)),
                 "text": None,
@@ -280,6 +285,8 @@ class BackupService:
                     provenance=tuple((f, FieldOrigin(o)) for f, o in rec["provenance"].items()),
                     reading_status=ReadingStatus(rec["reading_status"]),
                     notes=rec["notes"],
+                    # optional: absent in pre-E1-11 exports
+                    file_path=rec.get("file_path"),
                     created_at=datetime.fromisoformat(rec["created_at"]),
                 )
             )

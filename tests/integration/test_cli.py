@@ -64,6 +64,57 @@ class TestIngestAndSources:
         invoke("source", "show", "42", expect_exit=1)
 
 
+class TestFileArchive:
+    """E1-11: originals live in a visible files/ dir next to the DB."""
+
+    def test_ingest_archives_original_next_to_db(self, note, tmp_path):
+        invoke("ingest", "file", str(note), "--title", "Molecules")
+        files = list((tmp_path / "files").iterdir())
+        assert [f.name for f in files] == ["0001-Molecules.md"]
+        assert files[0].read_bytes() == note.read_bytes()
+        assert str(files[0]) in invoke("source", "show", "1")
+
+    def test_folder_ingest_archives_each_pdf(self, tmp_path):
+        import pymupdf
+
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "pdf body text")
+        doc.save(folder / "paper.pdf")
+        doc.close()
+        invoke("ingest", "folder", str(folder))
+        assert [f.name for f in (tmp_path / "files").iterdir()] == ["0001-paper.pdf"]
+
+    def test_source_open_launches_archived_file(self, note, monkeypatch):
+        invoke("ingest", "file", str(note), "--title", "Molecules")
+        opened = []
+        monkeypatch.setattr("typer.launch", lambda target: opened.append(target) or 0)
+        out = invoke("source", "open", "1")
+        assert opened and opened[0].endswith("0001-Molecules.md")
+        assert "opened" in out
+
+    def test_source_open_errors_without_archived_file(self, note, tmp_path):
+        invoke("ingest", "file", str(note), "--title", "Molecules")
+        (tmp_path / "files" / "0001-Molecules.md").unlink()
+        invoke("source", "open", "1", expect_exit=1)
+        invoke("source", "open", "42", expect_exit=1)
+
+    def test_delete_source_removes_archived_file(self, note, tmp_path):
+        invoke("ingest", "file", str(note), "--title", "Molecules")
+        invoke("source", "delete", "1", "--yes")
+        assert list((tmp_path / "files").iterdir()) == []
+
+    def test_attach_archives_the_new_original(self, note, tmp_path):
+        empty = tmp_path / "empty.md"
+        empty.write_text("")
+        invoke("ingest", "file", str(empty), "--title", "Bare")
+        out = invoke("source", "attach", "1", str(note))
+        assert "archived original" in out
+        (archived,) = (tmp_path / "files").iterdir()
+        assert archived.read_bytes() == note.read_bytes()
+
+
 class TestIdeaAndMatchFlow:
     def test_full_flow_to_related_work(self, note, tmp_path):
         invoke(

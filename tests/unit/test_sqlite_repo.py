@@ -63,6 +63,15 @@ class TestSources:
         b = repo.add_source(make_source(title="B", doi=None, arxiv_id=None))
         assert repo.list_sources() == [a, b]
 
+    def test_file_path_roundtrip(self, repo):
+        saved = repo.add_source(make_source(file_path="0001-attention.pdf"))
+        assert saved.file_path == "0001-attention.pdf"
+        assert repo.get_source(saved.id).file_path == "0001-attention.pdf"
+
+    def test_file_path_defaults_to_none(self, repo):
+        saved = repo.add_source(make_source())
+        assert repo.get_source(saved.id).file_path is None
+
     def test_find_by_doi_normalises(self, repo):
         saved = repo.add_source(make_source(doi="https://doi.org/10.1000/Example"))
         assert saved.doi == "10.1000/example"
@@ -442,7 +451,9 @@ class TestSearch:
 
 class TestMigrations:
     def test_user_version_set(self, repo):
-        assert repo._conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        from mustrum.adapters.sqlite.schema import MIGRATIONS
+
+        assert repo._conn.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
 
     def test_reopening_existing_db_is_idempotent(self, tmp_path):
         db = tmp_path / "test.db"
@@ -452,6 +463,24 @@ class TestMigrations:
         r2 = SqliteRepo(db)
         assert r2.get_source(s.id) == s
         r2.close()
+
+    def test_v1_database_gains_file_path_column(self, tmp_path):
+        """A pre-E1-11 database (schema v1) upgrades in place on open."""
+        import dataclasses
+
+        from mustrum.adapters.sqlite.schema import MIGRATIONS
+
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(MIGRATIONS[0])
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+        repo = SqliteRepo(db)
+        saved = repo.add_source(make_source())
+        repo.update_source(dataclasses.replace(saved, file_path="0001-x.pdf"))
+        assert repo.get_source(saved.id).file_path == "0001-x.pdf"
+        repo.close()
 
 
 class TestUpdateSource:

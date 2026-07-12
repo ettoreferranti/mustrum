@@ -132,6 +132,11 @@ MIGRATIONS: list[str] = [
         body
     );
     """,
+    # v2 — archived original file per source (E1-11 / ADR-13); the value is a
+    # file name relative to the `files/` directory next to the database
+    """
+    ALTER TABLE sources ADD COLUMN file_path TEXT;
+    """,
 ]
 
 

@@ -76,11 +76,18 @@ Every command, grouped by task (`mustrum <command> --help` gives full options).
 All accept `--on-duplicate fail|skip|merge`; `merge` enriches an existing
 record instead of duplicating. `--no-pdf` skips full-text download.
 
+Every ingested or fetched original (PDF/text) is also archived in a visible
+`files/` directory next to the database, so the library and its originals
+back up as one unit — open them any time with `mustrum source open <id>`.
+Re-running `ingest file`/`ingest folder` on already-known papers backfills
+the archive for sources ingested before this feature.
+
 ### Sources
 
 | Command | Purpose |
 |---|---|
 | `mustrum source list` / `mustrum source show <id>` | Browse the library |
+| `mustrum source open <id>` | Open the archived original (PDF/text) with the default application |
 | `mustrum source attach <id> <file>` | Attach a manually-downloaded PDF to an existing source (upgrades an abstract; invalidates its summary) |
 | `mustrum source enrich <id>` / `--all` | Complete bare PDF sources with Crossref metadata found by exact-title lookup (authors, year, DOI, BibTeX) |
 | `mustrum source rename <id> "<title>"` | Set a proper title (PDF ingests use PDF-metadata titles automatically when sane) |
@@ -139,7 +146,9 @@ the big picture.
 
 Your entire library — sources, verbatim texts, summaries, ideas, matches,
 BibTeX, contacts, embeddings — lives in **one SQLite file**
-(`~/.mustrum/mustrum.db` by default). Run `mustrum config --init` to create a
+(`~/.mustrum/mustrum.db` by default), with the archived original files in a
+`files/` directory beside it: back up (or sync) the folder containing the DB
+and you have everything. Run `mustrum config --init` to create a
 commented config template at `~/.config/mustrum/config.toml`, then point
 `db_path` into a synced folder to keep the library in the cloud:
 

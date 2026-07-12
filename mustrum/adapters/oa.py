@@ -8,10 +8,23 @@ PDF is always available from arxiv.org. Unpaywall requires a contact e-mail
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import httpx
 
 from mustrum.adapters.arxiv import normalize_arxiv_id
 from mustrum.core.models import FetchedMetadata
+
+
+@dataclass(frozen=True)
+class FullTextResult:
+    """Outcome of the PDF hunt: extracted text, human-readable notes, and —
+    when a download succeeded — the raw PDF bytes for the file archive
+    (E1-11)."""
+
+    text: str = ""
+    notes: list[str] = field(default_factory=list)
+    pdf_bytes: bytes | None = None
 
 
 def arxiv_pdf_url(arxiv_id: str) -> str:
@@ -47,13 +60,13 @@ class OpenAccessClient:
         return content
 
 
-def fetch_full_text(meta: FetchedMetadata, unpaywall_email: str) -> tuple[str, list[str]]:
+def fetch_full_text(meta: FetchedMetadata, unpaywall_email: str) -> FullTextResult:
     """Try every candidate PDF URL for fetched metadata; shared by CLI and GUI.
 
     Candidates, in order: arXiv (always open), an Unpaywall open-access copy,
     then the publisher's Crossref full-text links (succeed only on networks
-    with subscription access). Returns (full_text, notes) — full_text is ''
-    when no candidate worked, notes explain what happened.
+    with subscription access). `text` is '' when no candidate worked; the
+    notes explain what happened.
     """
     from mustrum.adapters.pdf import extract_pdf_bytes
 
@@ -78,12 +91,13 @@ def fetch_full_text(meta: FetchedMetadata, unpaywall_email: str) -> tuple[str, l
 
     for url in candidates:
         try:
-            text = extract_pdf_bytes(client.download_pdf(url))
+            pdf_bytes = client.download_pdf(url)
+            text = extract_pdf_bytes(pdf_bytes)
         except Exception as exc:
             notes.append(f"PDF fetch failed from {url} ({exc})")
             continue
         notes.append(f"fetched full text from {url}")
-        return text, notes
+        return FullTextResult(text=text, notes=notes, pdf_bytes=pdf_bytes)
     if candidates or meta.doi:
         notes.append("no downloadable PDF — storing abstract only")
-    return "", notes
+    return FullTextResult(notes=notes)

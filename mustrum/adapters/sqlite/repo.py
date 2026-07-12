@@ -84,8 +84,8 @@ class SqliteRepo:
         cur = self._conn.execute(
             """INSERT INTO sources
                (kind, title, authors, year, doi, arxiv_id, title_hash,
-                provenance, reading_status, notes, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                provenance, reading_status, notes, file_path, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 source.kind.value,
                 source.title,
@@ -97,6 +97,7 @@ class SqliteRepo:
                 json.dumps({f: o.value for f, o in source.provenance}),
                 source.reading_status.value,
                 source.notes,
+                source.file_path,
                 _dt(source.created_at),
             ),
         )
@@ -111,6 +112,7 @@ class SqliteRepo:
             provenance=source.provenance,
             reading_status=source.reading_status,
             notes=source.notes,
+            file_path=source.file_path,
             created_at=source.created_at,
             id=cur.lastrowid,
         )
@@ -124,7 +126,8 @@ class SqliteRepo:
         self.get_source(source.id)
         self._conn.execute(
             """UPDATE sources SET kind = ?, title = ?, authors = ?, year = ?, doi = ?,
-               arxiv_id = ?, title_hash = ?, provenance = ?, reading_status = ?, notes = ?
+               arxiv_id = ?, title_hash = ?, provenance = ?, reading_status = ?, notes = ?,
+               file_path = ?
                WHERE id = ?""",
             (
                 source.kind.value,
@@ -137,6 +140,7 @@ class SqliteRepo:
                 json.dumps({f: o.value for f, o in source.provenance}),
                 source.reading_status.value,
                 source.notes,
+                source.file_path,
                 source.id,
             ),
         )
@@ -154,6 +158,7 @@ class SqliteRepo:
             provenance=tuple((f, FieldOrigin(o)) for f, o in json.loads(row["provenance"]).items()),
             reading_status=ReadingStatus(row["reading_status"]),
             notes=row["notes"],
+            file_path=row["file_path"],
             created_at=_parse_dt(row["created_at"]),
             id=row["id"],
         )

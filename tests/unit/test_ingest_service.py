@@ -336,6 +336,16 @@ class TestMergeFieldRetention:
         assert merged.reading_status == ReadingStatus.READ
         assert merged.notes == "great related work section"
 
+    def test_merge_preserves_archived_file_path(self, repo, service):
+        import dataclasses
+
+        manual = service.ingest_document(
+            title="Attention Is All You Need", text="t", extraction_method="plaintext"
+        )
+        repo.update_source(dataclasses.replace(manual.source, file_path="0001-attention.pdf"))
+        service.ingest_fetched(META, on_duplicate="merge")
+        assert repo.get_source(manual.source.id).file_path == "0001-attention.pdf"
+
 
 class TestIngestFetchedFullText:
     def test_full_text_stored_instead_of_abstract(self, repo, service):
@@ -349,6 +359,24 @@ class TestIngestFetchedFullText:
         stored = repo.get_source_text(result.source.id)
         assert stored.text == META.abstract
         assert stored.extraction_method == "abstract"
+
+    def test_upgrade_removes_stale_embeddings(self, repo, service):
+        """Upgrading a multi-chunk abstract to a shorter full text must not
+        leave old chunk embeddings behind (they'd match against gone text)."""
+        import dataclasses
+
+        long_abstract = "\n\n".join(f"paragraph {i} " + "x" * 1400 for i in range(3))
+        result = service.ingest_fetched(dataclasses.replace(META, abstract=long_abstract))
+        source_id = result.source.id
+        before = [
+            e for e in repo.embeddings_for(EntityKind.SOURCE, "fake-embed") if e.ref_id == source_id
+        ]
+        assert len(before) == 3
+        service.attach_full_text(source_id, "short full text", "pymupdf")
+        after = [
+            e for e in repo.embeddings_for(EntityKind.SOURCE, "fake-embed") if e.ref_id == source_id
+        ]
+        assert len(after) == 1
 
     def test_merge_offers_full_text_when_existing_has_none(self, repo, service):
         service.ingest_document(

@@ -28,6 +28,10 @@ class TestLoadConfig:
         f.write_text('nonsense = "value"\n')
         assert load_config(f) == Config()
 
+    def test_files_dir_sits_next_to_db(self):
+        config = Config(db_path=Path("/data/mustrum/mustrum.db"))
+        assert config.files_dir == Path("/data/mustrum/files")
+
     def test_env_overrides_toml(self, tmp_path, monkeypatch):
         f = tmp_path / "config.toml"
         f.write_text('db_path = "/from/toml.db"\nollama_url = "http://toml:1"\n')

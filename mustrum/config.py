@@ -26,6 +26,12 @@ class Config:
     # empty disables OA lookup for DOI ingestion
     unpaywall_email: str = ""
 
+    @property
+    def files_dir(self) -> Path:
+        """Original-file archive: a visible directory next to the database,
+        so DB + originals form one backup unit (ADR-13)."""
+        return self.db_path.parent / "files"
+
 
 def load_config(path: Path | None = None) -> Config:
     """Defaults ← TOML file (if present) ← environment variables."""

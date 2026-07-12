@@ -61,6 +61,22 @@
            background: #fff; }
   .banner { background: var(--accent-soft); border: 1px dashed var(--accent);
             border-radius: 8px; padding: 8px 12px; font-size: .85rem; margin-bottom: 10px; }
+  .src-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .src-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px;
+                  border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap;
+                  user-select: none; }
+  .src-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .src-table tbody tr { cursor: pointer; }
+  .src-table tbody tr:hover, .src-table tr.selected { background: var(--accent-soft); }
+  .src-table tr.open .t { font-weight: 600; }
+  .src-table td.t { overflow-wrap: anywhere; }
+  .chip { border: 1px solid var(--line); background: transparent; border-radius: 6px;
+          padding: 1px 7px; font-size: .78rem; cursor: pointer; color: var(--ink);
+          white-space: nowrap; }
+  span.chip { cursor: default; }
+  .chip.ok { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .chip.warn { border-color: var(--accent); color: var(--accent); }
+  .chip.miss { color: var(--muted); border-style: dashed; }
   .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
   .inline input[type=text] { flex: 1; min-width: 160px; width: auto; }
   .spin::after { content: " ⏳"; }
@@ -98,7 +114,17 @@
       <div class="card">
         <h3>Sources <input type="text" id="lib-search" placeholder="filter / full-text search"
                             oninput="renderSources()" style="margin-top:6px"></h3>
-        <div id="source-list"></div>
+        <div class="inline" id="bulk-bar" style="display:none">
+          <span class="meta" id="bulk-count" style="color:var(--muted)"></span>
+          <button class="ghost" onclick="bulkSummarise()">Summarise missing</button>
+          <button class="ghost" onclick="bulkEnrich()">Find metadata</button>
+          <button class="ghost" onclick="bulkTag()">Tag…</button>
+          <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
+            onclick="bulkDelete()">Delete</button>
+        </div>
+        <input type="file" id="tbl-attach" accept=".pdf,.txt,.md" style="display:none"
+          onchange="attachFromRowGo()">
+        <div id="source-list" style="overflow-x:auto"></div>
       </div>
     </div>
     <div class="col">
@@ -228,25 +254,187 @@ async function loadStats() {
 }
 
 // ---- library ----
+let selected = new Set(), sortKey = "id", sortDir = 1;
+const byId = id => sources.find(s => s.id === id);
+
 async function loadSources() {
   sources = await api("/api/sources");
+  selected = new Set([...selected].filter(id => byId(id)));  // prune deleted
+  renderSources();
+}
+function filteredSources() {
+  const filter = $("lib-search").value.toLowerCase();
+  return sources.filter(s =>
+    !filter || s.title.toLowerCase().includes(filter) ||
+    s.authors.join(" ").toLowerCase().includes(filter) ||
+    (s.summary && s.summary.text.toLowerCase().includes(filter)));
+}
+function mainAuthor(s) {
+  return s.authors.length ? s.authors[0] + (s.authors.length > 1 ? " et al." : "") : "—";
+}
+function metaState(s) { return s.doi ? "doi" : (s.authors.length && s.year ? "✎" : "—"); }
+function sortVal(s, key) {
+  switch (key) {
+    case "title": return s.title.toLowerCase();
+    case "authors": return mainAuthor(s).toLowerCase();
+    case "year": return s.year ?? 0;
+    case "text": return s.text_kind ?? "";
+    case "summary": return s.summary ? 1 : 0;
+    case "meta": return metaState(s);
+    case "read": return s.reading_status;
+    default: return s.id;
+  }
+}
+function sortBy(key) {
+  if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
   renderSources();
 }
 function renderSources() {
-  const filter = $("lib-search").value.toLowerCase();
-  const items = sources.filter(s =>
-    !filter || s.title.toLowerCase().includes(filter) ||
-    (s.summary && s.summary.text.toLowerCase().includes(filter)));
-  $("source-list").innerHTML = items.map(s => `
-    <div class="list-item ${selectedSource === s.id ? "selected" : ""}"
-         onclick="showSource(${s.id})">
-      <div>${esc(s.title)}</div>
-      <div class="meta">${[
-          s.year, s.authors[0], s.summary ? "summarised" : null,
-          s.has_text ? null : "no text",
-        ].filter(Boolean).map(esc).join(" · ")}
-        ${s.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</div>
-    </div>`).join("") || "<p style='color:var(--muted)'>No sources yet — add one above.</p>";
+  const items = filteredSources().slice().sort((a, b) => {
+    const va = sortVal(a, sortKey), vb = sortVal(b, sortKey);
+    return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir;
+  });
+  const arrow = k => sortKey === k ? (sortDir > 0 ? " ▲" : " ▼") : "";
+  const allChecked = items.length && items.every(s => selected.has(s.id));
+  $("source-list").innerHTML = items.length ? `
+    <table class="src-table">
+      <thead><tr>
+        <th style="cursor:default"><input type="checkbox" title="select all shown"
+          ${allChecked ? "checked" : ""} onclick="toggleAll(this.checked)"></th>
+        <th onclick="sortBy('title')">Title${arrow("title")}</th>
+        <th onclick="sortBy('authors')">Authors${arrow("authors")}</th>
+        <th onclick="sortBy('year')">Year${arrow("year")}</th>
+        <th onclick="sortBy('text')" title="stored text">Text${arrow("text")}</th>
+        <th onclick="sortBy('summary')" title="verified summary">Sum${arrow("summary")}</th>
+        <th onclick="sortBy('meta')" title="doi = fetched · ✎ = authors/year by hand · — = missing">Meta${arrow("meta")}</th>
+        <th onclick="sortBy('read')">Read${arrow("read")}</th>
+        <th style="cursor:default">File</th>
+      </tr></thead>
+      <tbody>${items.map(rowHtml).join("")}</tbody>
+    </table>` : "<p style='color:var(--muted)'>No sources yet — add one above.</p>";
+  updateBulkBar();
+}
+function rowHtml(s) {
+  const chip = (cls, label, title, action) =>
+    `<button class="chip ${cls}" title="${esc(title)}"
+       onclick="event.stopPropagation();${action}">${label}</button>`;
+  const textChip = s.has_text
+    ? (s.text_kind === "abstract"
+        ? chip("warn", "abstract", "abstract only — click to attach the full PDF",
+               `attachFromRow(${s.id})`)
+        : `<span class="chip ok" title="${esc(s.text_kind)}">full</span>`)
+    : chip("miss", "—", "no text — click to attach a PDF", `attachFromRow(${s.id})`);
+  const sumChip = s.summary
+    ? `<span class="chip ok" title="${esc(s.summary.text.slice(0, 160))}">✓</span>`
+    : (s.has_text
+        ? chip("miss", "—", "no summary — click to summarise", `rowSummarise(${s.id})`)
+        : `<span class="chip miss" title="needs text first">—</span>`);
+  const metaChip = s.doi
+    ? `<span class="chip ok" title="doi: ${esc(s.doi)}">doi</span>`
+    : (s.authors.length && s.year
+        ? chip("warn", "✎", "authors/year set by hand — click to try Crossref", `rowEnrich(${s.id})`)
+        : chip("miss", "—", "no metadata — click to look up on Crossref", `rowEnrich(${s.id})`));
+  const readNext = {unread: "skimmed", skimmed: "read", read: "unread"};
+  const readCls = {unread: "miss", skimmed: "warn", read: "ok"};
+  const readChip = chip(readCls[s.reading_status], s.reading_status,
+    `click to mark ${readNext[s.reading_status]}`,
+    `rowStatus(${s.id}, '${readNext[s.reading_status]}')`);
+  const fileChip = s.file_name
+    ? chip("ok", "📄", `open ${s.file_name}`, `window.open('/api/sources/${s.id}/file')`)
+    : `<span class="chip miss" title="no archived original">—</span>`;
+  return `<tr class="${selected.has(s.id) ? "selected" : ""} ${selectedSource === s.id ? "open" : ""}"
+      onclick="showSource(${s.id})">
+    <td onclick="event.stopPropagation()"><input type="checkbox"
+        ${selected.has(s.id) ? "checked" : ""} onchange="toggleSelect(${s.id}, this.checked)"></td>
+    <td class="t">${esc(s.title)}
+      ${s.tags.map(t => `<span class=badge>${esc(t)}</span>`).join("")}</td>
+    <td title="${esc(s.authors.join(", "))}">${esc(mainAuthor(s))}</td>
+    <td>${s.year ?? "—"}</td>
+    <td>${textChip}</td><td>${sumChip}</td><td>${metaChip}</td><td>${readChip}</td><td>${fileChip}</td>
+  </tr>`;
+}
+function toggleSelect(id, on) { on ? selected.add(id) : selected.delete(id); renderSources(); }
+function toggleAll(on) {
+  filteredSources().forEach(s => on ? selected.add(s.id) : selected.delete(s.id));
+  renderSources();
+}
+function updateBulkBar() {
+  $("bulk-bar").style.display = selected.size ? "flex" : "none";
+  $("bulk-count").textContent = `${selected.size} selected`;
+}
+
+// ---- per-row chip actions ----
+async function rowSummarise(id) {
+  flash(`summarising [${id}]…`);
+  try { await post(`/api/sources/${id}/summarise`); }
+  catch (e) { flash(`[${id}] ${e.message}`, true); return; }
+  await loadSources(); await loadStats();
+  if (selectedSource === id) showSource(id);
+  flash("summary generated and verified");
+}
+async function rowEnrich(id) {
+  flash(`looking up [${id}] on Crossref…`);
+  let r;
+  try { r = await post(`/api/sources/${id}/enrich`); }
+  catch (e) { flash(`[${id}] ${e.message}`, true); return; }
+  if (r.enriched) { await loadSources(); flash(r.message); }
+  else { flash(r.message, true); editMeta(id); }
+}
+async function rowStatus(id, next) {
+  await post(`/api/sources/${id}/status/${next}`);
+  await loadSources();
+  if (selectedSource === id) showSource(id);
+}
+function attachFromRow(id) {
+  const input = $("tbl-attach");
+  input.dataset.sid = id;
+  input.click();
+}
+async function attachFromRowGo() {
+  const input = $("tbl-attach");
+  const id = parseInt(input.dataset.sid, 10);
+  if (!input.files.length || !id) return;
+  await attachUpload(id, input.files[0]);
+  input.value = "";
+}
+
+// ---- bulk actions ----
+async function bulkRun(label, ids, fn) {
+  let ok = 0;
+  const failed = [];
+  for (let i = 0; i < ids.length; i++) {
+    flash(`${label}: ${i + 1}/${ids.length} (source ${ids[i]})…`);
+    try { await fn(ids[i]); ok++; }
+    catch (e) { failed.push(`[${ids[i]}] ${e.message}`); }
+  }
+  await loadSources(); await loadStats();
+  if (failed.length) flash(`${label}: ${ok} ok, ${failed.length} failed — ${failed.join("; ")}`, true);
+  else flash(`${label}: ${ok} done`);
+}
+async function bulkSummarise() {
+  const ids = [...selected].filter(id => byId(id) && byId(id).has_text && !byId(id).summary);
+  if (!ids.length) { flash("selection has nothing to summarise (needs text, no summary yet)"); return; }
+  await bulkRun("summarise", ids, id => post(`/api/sources/${id}/summarise`));
+}
+async function bulkEnrich() {
+  const ids = [...selected].filter(id => byId(id) && !byId(id).doi);
+  if (!ids.length) { flash("every selected source already has a DOI"); return; }
+  await bulkRun("find metadata", ids, async id => {
+    const r = await post(`/api/sources/${id}/enrich`);
+    if (!r.enriched) throw new Error(r.message);
+  });
+}
+async function bulkTag() {
+  const tag = prompt(`Tag to add to ${selected.size} source(s):`);
+  if (!tag || !tag.trim()) return;
+  await bulkRun("tag", [...selected], id => post(`/api/sources/${id}/tags`, {text: tag.trim()}));
+}
+async function bulkDelete() {
+  if (!confirm(`Delete ${selected.size} source(s)?\nRemoves texts, summaries, BibTeX entries, matches, and archived files. Drafts citing them will fail audit.`)) return;
+  await bulkRun("delete", [...selected], id => api("/api/sources/" + id, {method: "DELETE"}));
+  selectedSource = null;
+  $("source-detail").innerHTML = "<h3>Select a source</h3>";
+  await loadIdeas();
 }
 async function showSource(id) {
   selectedSource = id; renderSources();
@@ -333,11 +521,9 @@ async function deleteSource(id) {
   await loadSources(); await loadStats(); await loadIdeas();
   flash("source deleted");
 }
-async function attachFile(id) {
-  const input = $("sd-attach");
-  if (!input.files.length) return;
+async function attachUpload(id, file) {
   const form = new FormData();
-  form.append("file", input.files[0]);
+  form.append("file", file);
   const res = await fetch(`/api/sources/${id}/attach`, {method: "POST", body: form});
   if (!res.ok) {
     let detail = res.statusText;
@@ -347,7 +533,13 @@ async function attachFile(id) {
   }
   const r = await res.json();
   flash(r.summary_invalidated ? "attached — summary invalidated, re-run Summarise" : "attached");
-  await loadSources(); await showSource(id);
+  await loadSources();
+  if (selectedSource === id) await showSource(id);
+}
+async function attachFile(id) {
+  const input = $("sd-attach");
+  if (!input.files.length) return;
+  await attachUpload(id, input.files[0]);
 }
 async function setStatus(id) {
   await post(`/api/sources/${id}/status/` + $("sd-status").value);

@@ -303,6 +303,22 @@ class TestDelete:
         assert client.delete("/api/ideas/9").status_code == 404
 
 
+class TestTags:
+    """E11-6: bulk tag runs through this per-source endpoint."""
+
+    def test_add_tag_roundtrip(self, client):
+        source_id = ingest_note(client)
+        assert (
+            client.post(f"/api/sources/{source_id}/tags", json={"text": " gnn "}).status_code == 200
+        )
+        assert client.get(f"/api/sources/{source_id}").json()["tags"] == ["gnn"]
+
+    def test_empty_tag_400_and_missing_source_404(self, client):
+        source_id = ingest_note(client)
+        assert client.post(f"/api/sources/{source_id}/tags", json={"text": "  "}).status_code == 400
+        assert client.post("/api/sources/99/tags", json={"text": "x"}).status_code == 404
+
+
 class TestEditMetadata:
     """E8-6: GUI counterpart of `source edit` for DOI-less venues."""
 

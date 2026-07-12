@@ -103,6 +103,7 @@ stories at the bottom of the relevant epic.
 | E11-3 | GUI "Add PDF": attach a manually-downloaded PDF/text to an existing source from the source panel (`POST /api/sources/{id}/attach`); archives the original (E1-11), invalidates an upgraded abstract's summary — split out of E11-2 after live DOI-ingest testing ([PR #2](https://github.com/ettoreferranti/mustrum/pull/2)) | S | done |
 | E11-4 | Ingest feedback: GUI flash surfaces the PDF-fetch notes (failures were CLI-only); "no downloadable PDF" note distinguishes stored-abstract from metadata-only and points at attach — found when an ACM OA PDF 403'd silently in the GUI ([PR #2](https://github.com/ettoreferranti/mustrum/pull/2)) | S | done |
 | E11-5 | Readable errors: GUI error flashes persist until dismissed (click ✕; successes still fade); every failed API call leaves a line in the `mustrum ui` terminal — found when a grounding-failure flash vanished before it could be read ([PR #3](https://github.com/ettoreferranti/mustrum/pull/3)) | S | done |
+| E11-6 | Source table: sortable columns (title, main-author et al., year), clickable status chips acting in place (text→attach, summary→summarise, meta→enrich/edit, read cycles, file opens), multi-select with bulk summarise-missing / find-metadata / tag / delete (sequential client-side loop, per-source failures collected); new `POST /api/sources/{id}/tags` ([PR #5](https://github.com/ettoreferranti/mustrum/pull/5)) | S | done |
 
 ## Phase 3 — Anthropic provider
 

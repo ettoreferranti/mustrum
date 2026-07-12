@@ -9,7 +9,10 @@ emitted unless it passes these checks:
   plus quote/dash folding, see _normalize): publisher PDFs use curly quotes,
   ligatures, and typographic dashes that models reproduce as ASCII, and that
   glyph-level variance must not mask genuinely identical wording. Case and
-  the words themselves remain strict.
+  the words themselves remain strict, with one sanctioned exception
+  (ADR-15): the case of a quote's FIRST character is folded, because quoting
+  a mid-sentence span as a sentence conventionally recapitalises the first
+  word — that is quoting convention, not a wording change.
 - CitationVerifier: every citation key used in generated text must exist in
   the database's key set. Supports LaTeX (`\\cite{...}` and biblatex/natbib
   variants) and pandoc-Markdown (`[@key]`, `@key`) citations.
@@ -53,6 +56,18 @@ def _normalize(text: str) -> str:
     return " ".join(folded.split())
 
 
+def _first_char_variants(quote: str) -> tuple[str, ...]:
+    """The quote plus, when it starts with a cased letter, the same quote
+    with only that first character's case swapped (ADR-15). Everything after
+    the first character stays strict."""
+    if quote and quote[0].isalpha():
+        head = quote[0]
+        swapped = (head.lower() if head.isupper() else head.upper()) + quote[1:]
+        if swapped != quote:
+            return (quote, swapped)
+    return (quote,)
+
+
 @dataclass(frozen=True)
 class GroundingResult:
     ok: bool
@@ -75,7 +90,9 @@ class GroundingVerifier:
         if not usable:
             return GroundingResult(ok=False, missing_quotes=(), empty_evidence=True)
         haystack = _normalize(source_text)
-        missing = tuple(q for q in usable if _normalize(q) not in haystack)
+        missing = tuple(
+            q for q in usable if not any(v in haystack for v in _first_char_variants(_normalize(q)))
+        )
         return GroundingResult(ok=not missing, missing_quotes=missing, empty_evidence=False)
 
 

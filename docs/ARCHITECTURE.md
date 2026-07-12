@@ -2,9 +2,9 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-12 (E3-5: structured LLM outputs via optional
-> json_schema on LLMProvider, ADR-14; earlier same day E1-11 original-file
-> archive, ADR-13).
+> Last updated: 2026-07-12 (E3-6: first-character case fold in quote
+> verification, ADR-15; earlier same day E3-5 structured outputs ADR-14 and
+> E1-11 original-file archive ADR-13).
 
 ## 1. Overview
 
@@ -135,7 +135,9 @@ The anti-hallucination guarantees live in two small, heavily-tested classes:
 1. **GroundingVerifier** — takes model output that includes evidence quotes
    and the stored `SourceText`; verifies each quote occurs verbatim in the
    text, compared under whitespace + typographic normalisation (Unicode NFKC
-   and quote/dash folding, ADR-10); wording, case, and digits stay strict.
+   and quote/dash folding, ADR-10); wording, case, and digits stay strict,
+   except that the first character's case is folded (sentence-start
+   recapitalisation is quoting convention, ADR-15).
    Zero usable quotes is itself a failure (`empty_evidence`) — claims without
    evidence are rejected. Failure ⇒ the artefact is rejected and reported;
    nothing partial is stored.

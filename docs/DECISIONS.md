@@ -121,3 +121,14 @@ verbatim, brainstorm's based_on titles are still resolved against real
 records, and nothing unverified is stored. Genuine truncation is now loud:
 `done_reason=length` raises "output truncated — raise num_ctx" instead of
 surfacing as a downstream parse/grounding failure.
+
+## ADR-15 — Quote verification folds case at the first character only (2026-07-12, amends ADR-10)
+Live summarising showed qwen3 recapitalising quotes that start mid-sentence
+("So far, we have identified 38…" quoted as "We have identified 38…") —
+standard quoting convention, rejected by the case-strict verifier as if it
+were a wording change. GroundingVerifier now also accepts a quote whose
+FIRST character differs from the source only in case (cased letters only;
+digits, punctuation, and caseless scripts stay strict). Everything beyond
+the first character remains exact — "observe" for "observed" is still
+rejected, as is any mid-quote case change. verify.py remains at 100%
+mutation score; the variant helper is pinned by direct edge tests.

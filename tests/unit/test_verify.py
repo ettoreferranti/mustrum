@@ -1,7 +1,7 @@
 """Tests for the rigour kernel. This module has the strictest bar in the
 project: every mutmut survivor must be killed or justified (NFR-4)."""
 
-from mustrum.core.verify import CitationVerifier, GroundingVerifier
+from mustrum.core.verify import CitationVerifier, GroundingVerifier, _first_char_variants
 
 SOURCE = (
     "We propose the Transformer, a model architecture eschewing recurrence and\n"
@@ -87,6 +87,39 @@ class TestGroundingVerifier:
         result = self.v.verify(["anything"], "")
         assert not result.ok
         assert result.missing_quotes == ("anything",)
+
+    def test_recapitalised_sentence_start_passes(self):
+        """ADR-15: quoting a mid-sentence span as a sentence recapitalises
+        the first word — quoting convention, not a wording change."""
+        # source has "...and instead relying entirely..." (lowercase i)
+        result = self.v.verify(["Instead relying entirely on an attention mechanism"], SOURCE)
+        assert result.ok is True
+
+    def test_lowercased_sentence_start_passes(self):
+        # source has "We propose the Transformer" (capital W)
+        assert self.v.verify(["we propose the Transformer"], SOURCE).ok is True
+
+    def test_case_change_beyond_first_char_still_fails(self):
+        result = self.v.verify(["We Propose the Transformer"], SOURCE)
+        assert not result.ok
+        assert result.missing_quotes == ("We Propose the Transformer",)
+
+    def test_single_character_quote_folds(self):
+        assert self.v.verify(["w"], "W").ok is True
+
+    def test_non_alpha_first_char_gets_no_fold(self):
+        # the fold applies to the first character only; if that character is
+        # not a cased letter, everything stays strict
+        assert not self.v.verify(["4 Words matter"], "4 words matter").ok
+
+    def test_first_char_variants_edges(self):
+        """Pins the helper exactly (mutation bar: every key behaviour)."""
+        assert _first_char_variants("") == ("",)
+        assert _first_char_variants("Word up") == ("Word up", "word up")
+        assert _first_char_variants("word up") == ("word up", "Word up")
+        assert _first_char_variants("4word") == ("4word",)
+        assert _first_char_variants('"quoted"') == ('"quoted"',)
+        assert _first_char_variants("中文") == ("中文",)  # caseless letter: no variant
 
     def test_junk_quote_never_matches_normalisation_artifacts(self):
         # guards the whitespace-normalisation delimiter itself: a single-token

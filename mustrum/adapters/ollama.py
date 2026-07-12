@@ -49,7 +49,13 @@ class OllamaLLM:
     def model_name(self) -> str:
         return self._model
 
-    def generate(self, prompt: str, *, system: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        json_schema: dict[str, Any] | None = None,
+    ) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "prompt": prompt,
@@ -59,10 +65,22 @@ class OllamaLLM:
         }
         if system is not None:
             payload["system"] = system
+        if json_schema is not None:
+            # structured output (ADR-14): Ollama constrains decoding to the
+            # schema, so the reply parses by construction — content is still
+            # untrusted and must pass the verifiers
+            payload["format"] = json_schema
         data = _post(self._client, f"{self._url}/api/generate", payload)
         text = data.get("response")
         if not isinstance(text, str):
             raise OllamaError(f"malformed Ollama response: {data!r}")
+        if data.get("done_reason") == "length":
+            # a cut-off reply must fail loudly, not surface as a cryptic
+            # parse/grounding failure downstream
+            raise OllamaError(
+                f"output truncated: the context window filled up "
+                f"(num_ctx={self._num_ctx}) — raise num_ctx in the config"
+            )
         return _THINK_BLOCK.sub("", text).strip()
 
 

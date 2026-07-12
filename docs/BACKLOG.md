@@ -44,6 +44,7 @@ stories at the bottom of the relevant epic.
 | E3-2 | GroundingVerifier + CitationVerifier (`core/verify.py`) — 100% mutant review | M | done |
 | E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | done |
 | E3-4 | Batch summarisation (`summarise --all`): only sources lacking a summary, grounding failures skipped and reported | S | done |
+| E3-5 | Structured outputs (ADR-14): `LLMProvider.generate` takes an optional JSON schema, Ollama forwards it as `format` so replies parse by construction (grounded loop + brainstorm); `done_reason=length` raises "output truncated — raise num_ctx" — found when qwen3's untagged reasoning prose caused "no parsable output" ([PR #6](https://github.com/ettoreferranti/mustrum/pull/6)) | S | done |
 
 ### E4 Matching
 | ID | Story | Prio | Status |

@@ -22,6 +22,7 @@ from mustrum.core.models import (
     Contact,
     ContactKind,
     EntityKind,
+    FieldOrigin,
     MatchStatus,
     ReadingStatus,
     Source,
@@ -59,6 +60,11 @@ class BrainstormPayload(BaseModel):
     count: int = 3
     focus: str = ""
     save: bool = False
+
+
+class MetadataPayload(BaseModel):
+    authors: list[str] | None = None
+    year: int | None = None
 
 
 class ContactPayload(BaseModel):
@@ -225,6 +231,27 @@ def create_app(
         if clash is not None and clash.id != source_id:
             raise HTTPException(409, f"another source already has this title: {clash.title}")
         repo.update_source(dataclasses.replace(source, title=title))
+        return {"ok": True}
+
+    @app.post("/api/sources/{source_id}/metadata")
+    async def edit_metadata(source_id: int, payload: MetadataPayload) -> dict[str, Any]:
+        """GUI counterpart of `source edit` (E8-6): manual authors/year for
+        papers whose venue has no DOIs (e.g. CEUR-WS)."""
+        if payload.authors is None and payload.year is None:
+            raise HTTPException(400, "nothing to change — give authors and/or year")
+        try:
+            source = repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        provenance = dict(source.provenance)
+        if payload.authors is not None:
+            authors = tuple(a.strip() for a in payload.authors if a.strip())
+            source = dataclasses.replace(source, authors=authors)
+            provenance["authors"] = FieldOrigin.USER
+        if payload.year is not None:
+            source = dataclasses.replace(source, year=payload.year)
+            provenance["year"] = FieldOrigin.USER
+        repo.update_source(dataclasses.replace(source, provenance=tuple(provenance.items())))
         return {"ok": True}
 
     @app.post("/api/sources/{source_id}/enrich")

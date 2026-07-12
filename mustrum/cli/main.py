@@ -24,6 +24,7 @@ from mustrum.core.models import (
     ContactLink,
     EntityKind,
     FetchedMetadata,
+    FieldOrigin,
     IdeaRelation,
     Match,
     MatchStatus,
@@ -420,6 +421,41 @@ def source_rename(source_id: int, title: str) -> None:
         _fail(f"another source already has this title: [{clash.id}] {clash.title}")
     ctx.repo.update_source(dataclasses.replace(source, title=title))
     typer.echo(f"renamed [{source_id}] to: {title}")
+
+
+@source_app.command("edit")
+def source_edit(
+    source_id: int,
+    author: Annotated[
+        list[str] | None, typer.Option("--author", help="Repeatable; replaces the author list.")
+    ] = None,
+    year: Annotated[int | None, typer.Option("--year")] = None,
+) -> None:
+    """Set authors/year by hand — for papers whose venue Crossref doesn't
+    index (e.g. CEUR-WS workshop proceedings, which have no DOIs). The
+    fields are recorded as user-provided in provenance."""
+    import dataclasses
+
+    if author is None and year is None:
+        _fail("nothing to change — give --author and/or --year")
+    ctx = _context()
+    try:
+        source = ctx.repo.get_source(source_id)
+    except KeyError as exc:
+        _fail(str(exc))
+        return
+    provenance = dict(source.provenance)
+    if author is not None:
+        source = dataclasses.replace(source, authors=tuple(author))
+        provenance["authors"] = FieldOrigin.USER
+    if year is not None:
+        source = dataclasses.replace(source, year=year)
+        provenance["year"] = FieldOrigin.USER
+    ctx.repo.update_source(dataclasses.replace(source, provenance=tuple(provenance.items())))
+    updated = ctx.repo.get_source(source_id)
+    _print_source(updated)
+    if updated.authors:
+        typer.echo(f"authors: {', '.join(updated.authors)}")
 
 
 @source_app.command("enrich")

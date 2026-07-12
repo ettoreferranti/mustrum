@@ -37,8 +37,10 @@ def enrich_source(
     if meta is None:
         return EnrichResult(
             False,
-            "no confident Crossref match — a hit must carry this exact title "
-            "(fix the title first, or ingest by DOI)",
+            "no confident Crossref match — a hit must carry this exact title. "
+            "Fix the title or ingest by DOI; if the venue has no DOIs at all "
+            "(e.g. CEUR-WS workshop proceedings), set the metadata by hand: "
+            'source edit ID --author "..." --year YYYY',
         )
     if meta.doi:
         clash = repo.find_source_by_doi(meta.doi)

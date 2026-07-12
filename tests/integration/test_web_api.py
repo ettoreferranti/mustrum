@@ -303,6 +303,34 @@ class TestDelete:
         assert client.delete("/api/ideas/9").status_code == 404
 
 
+class TestEditMetadata:
+    """E8-6: GUI counterpart of `source edit` for DOI-less venues."""
+
+    def test_metadata_roundtrip(self, client):
+        source_id = ingest_note(client)
+        response = client.post(
+            f"/api/sources/{source_id}/metadata",
+            json={"authors": ["Ada Smith", " Bob Jones "], "year": 2025},
+        )
+        assert response.status_code == 200
+        data = client.get(f"/api/sources/{source_id}").json()
+        assert data["authors"] == ["Ada Smith", "Bob Jones"]
+        assert data["year"] == 2025
+
+    def test_partial_update_keeps_other_field(self, client):
+        source_id = ingest_note(client)
+        client.post(f"/api/sources/{source_id}/metadata", json={"authors": ["A"], "year": 2024})
+        client.post(f"/api/sources/{source_id}/metadata", json={"year": 2025})
+        data = client.get(f"/api/sources/{source_id}").json()
+        assert data["authors"] == ["A"]
+        assert data["year"] == 2025
+
+    def test_empty_payload_400_and_missing_404(self, client):
+        source_id = ingest_note(client)
+        assert client.post(f"/api/sources/{source_id}/metadata", json={}).status_code == 400
+        assert client.post("/api/sources/99/metadata", json={"year": 2020}).status_code == 404
+
+
 class TestErrorLogging:
     """E11-5: failed API calls leave a durable record in the ui terminal."""
 

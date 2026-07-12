@@ -63,6 +63,30 @@ class TestIngestAndSources:
     def test_missing_source_errors(self):
         invoke("source", "show", "42", expect_exit=1)
 
+    def test_edit_sets_authors_and_year(self, note):
+        """E8-6: manual metadata for papers whose venue has no DOIs."""
+        invoke("ingest", "file", str(note), "--title", "CEUR Workshop Paper")
+        out = invoke(
+            "source",
+            "edit",
+            "1",
+            "--author",
+            "Ada Smith",
+            "--author",
+            "Bob Jones",
+            "--year",
+            "2025",
+        )
+        assert "CEUR Workshop Paper (2025)" in out
+        assert "Ada Smith, Bob Jones" in out
+        out = invoke("source", "show", "1")
+        assert "Ada Smith, Bob Jones" in out
+
+    def test_edit_requires_a_change(self, note):
+        invoke("ingest", "file", str(note), "--title", "T")
+        invoke("source", "edit", "1", expect_exit=1)
+        invoke("source", "edit", "42", "--year", "2020", expect_exit=1)
+
 
 class TestFileArchive:
     """E1-11: originals live in a visible files/ dir next to the DB."""

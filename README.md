@@ -91,6 +91,7 @@ the archive for sources ingested before this feature.
 | `mustrum source attach <id> <file>` | Attach a manually-downloaded PDF to an existing source (upgrades an abstract; invalidates its summary) |
 | `mustrum source enrich <id>` / `--all` | Complete bare PDF sources with Crossref metadata found by exact-title lookup (authors, year, DOI, BibTeX) |
 | `mustrum source rename <id> "<title>"` | Set a proper title (PDF ingests use PDF-metadata titles automatically when sane) |
+| `mustrum source edit <id> --author "<name>" --year <yyyy>` | Set authors/year by hand — for venues Crossref doesn't index, e.g. CEUR-WS (`--author` repeatable) |
 | `mustrum source delete <id>` | Remove a source and everything attached to it (`--yes` skips the prompt) |
 | `mustrum source status <id> <unread\|skimmed\|read>` | Reading status |
 | `mustrum source tag <id> <tag>` (`--remove`) | Tags |

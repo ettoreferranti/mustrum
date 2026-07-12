@@ -7,12 +7,14 @@ Everything the GUI does is also possible via `mustrum <command>`.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from importlib import resources
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mustrum.adapters.archive import archive_original, archived_file, delete_archived
 from mustrum.config import Config
@@ -107,6 +109,16 @@ def create_app(
     config: Config,
 ) -> FastAPI:
     app = FastAPI(title="Mustrum", docs_url=None, redoc_url=None)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def log_http_errors(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """Every failed API call leaves a durable line in the `mustrum ui`
+        terminal (E11-5) — the GUI flash is no longer the only record."""
+        print(
+            f"[mustrum ui] {request.method} {request.url.path} -> {exc.status_code}: {exc.detail}",
+            file=sys.stderr,
+        )
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     def summariser() -> SummariseService:
         return SummariseService(repo, llm, max_source_chars=config.max_source_chars)

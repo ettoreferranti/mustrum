@@ -303,6 +303,20 @@ class TestDelete:
         assert client.delete("/api/ideas/9").status_code == 404
 
 
+class TestErrorLogging:
+    """E11-5: failed API calls leave a durable record in the ui terminal."""
+
+    def test_failed_call_logged_to_stderr_and_detail_preserved(self, client, capsys):
+        response = client.get("/api/sources/99")
+        assert response.status_code == 404
+        assert "no source with id 99" in response.json()["detail"]
+        assert "[mustrum ui] GET /api/sources/99 -> 404" in capsys.readouterr().err
+
+    def test_successful_call_not_logged(self, client, capsys):
+        assert client.get("/api/sources").status_code == 200
+        assert "[mustrum ui]" not in capsys.readouterr().err
+
+
 class TestRename:
     def test_rename_endpoint(self, client):
         source_id = ingest_note(client)

@@ -45,7 +45,7 @@ stories at the bottom of the relevant epic.
 | E3-3 | Grounded summarisation pipeline (generate → verify → store or reject) | M | done |
 | E3-4 | Batch summarisation (`summarise --all`): only sources lacking a summary, grounding failures skipped and reported | S | done |
 | E3-5 | Structured outputs (ADR-14): `LLMProvider.generate` takes an optional JSON schema, Ollama forwards it as `format` so replies parse by construction (grounded loop + brainstorm); `done_reason=length` raises "output truncated — raise num_ctx" — found when qwen3's untagged reasoning prose caused "no parsable output" ([PR #6](https://github.com/ettoreferranti/mustrum/pull/6)) | S | done |
-| E3-6 | Quote verification folds case at the FIRST character only (ADR-15, amends ADR-10): sentence-start recapitalisation is quoting convention, not a wording change; everything else stays strict; verify.py kept at 100% mutation score — found when qwen3 quoted "So far, we have…" as "We have…" | S | done |
+| E3-6 | Quote verification folds case at the FIRST character only (ADR-15, amends ADR-10): sentence-start recapitalisation is quoting convention, not a wording change; everything else stays strict; verify.py kept at 100% mutation score — found when qwen3 quoted "So far, we have…" as "We have…" ([PR #7](https://github.com/ettoreferranti/mustrum/pull/7)) | S | done |
 
 ### E4 Matching
 | ID | Story | Prio | Status |

@@ -28,7 +28,7 @@ stories at the bottom of the relevant epic.
 | E1-10 | Docs guard: every CLI command must appear in README (test-enforced) | S | done |
 | E1-8 | Automatic full-text PDF fetch on ingest: arXiv PDFs always, DOIs via Unpaywall open-access lookup; abstract fallback | S | done |
 | E1-7 | Batch folder ingest (`ingest folder DIR [-r]`): all PDFs, per-file errors don't abort, idempotent re-runs | S | done |
-| E1-11 | Original-file archive: copy every ingested/fetched original (PDF/text) into a visible `files/` directory beside the DB so DB + originals back up as one unit; `Source.file_path` (schema migration); persist arXiv/Unpaywall downloads; `source attach` archives too; `source open ID` CLI + GUI "Open PDF" via API file endpoint (ADR-13) | S | done |
+| E1-11 | Original-file archive: copy every ingested/fetched original (PDF/text) into a visible `files/` directory beside the DB so DB + originals back up as one unit; `Source.file_path` (schema migration); persist arXiv/Unpaywall downloads; `source attach` archives too; `source open ID` CLI + GUI "Open PDF" via API file endpoint (ADR-13, [PR #1](https://github.com/ettoreferranti/mustrum/pull/1)) | S | done |
 
 ### E2 Ideas
 | ID | Story | Prio | Status |

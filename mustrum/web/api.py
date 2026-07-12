@@ -254,6 +254,18 @@ def create_app(
         repo.update_source(dataclasses.replace(source, provenance=tuple(provenance.items())))
         return {"ok": True}
 
+    @app.post("/api/sources/{source_id}/tags")
+    async def add_tag(source_id: int, payload: TextPayload) -> dict[str, Any]:
+        tag = payload.text.strip()
+        if not tag:
+            raise HTTPException(400, "tag must not be empty")
+        try:
+            repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        repo.tag(EntityKind.SOURCE, source_id, tag)
+        return {"ok": True}
+
     @app.post("/api/sources/{source_id}/enrich")
     async def enrich(source_id: int) -> dict[str, Any]:
         from mustrum.adapters.enrich import enrich_source

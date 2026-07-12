@@ -271,6 +271,11 @@ async function showSource(id) {
     ${s.file_name ? `<button class="ghost" title="archived original: ${esc(s.file_name)}"
       onclick="window.open('/api/sources/${id}/file')">
       ${s.file_name.toLowerCase().endsWith(".pdf") ? "Open PDF" : "Open original"}</button>` : ""}
+    ${!s.has_text || s.text_kind === "abstract" ? `
+      <input type="file" id="sd-attach" accept=".pdf,.txt,.md" style="display:none"
+        onchange="attachFile(${id})">
+      <button class="ghost" title="attach a manually-downloaded PDF (stores its text${s.text_kind === "abstract" ? ", upgrades the abstract" : ""} and archives the file)"
+        onclick="$('sd-attach').click()">Add PDF</button>` : ""}
     ${!s.doi ? `<button class="ghost" title="look up authors/year/DOI/BibTeX on Crossref by exact title"
       onclick="busy(this, () => enrich(${id}))">Find metadata</button>` : ""}
     </div>
@@ -306,6 +311,22 @@ async function deleteSource(id) {
   await loadSources(); await loadStats(); await loadIdeas();
   flash("source deleted");
 }
+async function attachFile(id) {
+  const input = $("sd-attach");
+  if (!input.files.length) return;
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const res = await fetch(`/api/sources/${id}/attach`, {method: "POST", body: form});
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    flash(detail, true);
+    return;
+  }
+  const r = await res.json();
+  flash(r.summary_invalidated ? "attached — summary invalidated, re-run Summarise" : "attached");
+  await loadSources(); await showSource(id);
+}
 async function setStatus(id) {
   await post(`/api/sources/${id}/status/` + $("sd-status").value);
   loadSources();
@@ -326,7 +347,11 @@ async function ingestId() {
   const btn = event.target;
   await busy(btn, async () => {
     const r = await post("/api/ingest/" + kind, {identifier: value});
-    flash((r.created ? "ingested: " : "merged: ") + r.source.title);
+    let msg = (r.created ? "ingested: " : "merged: ") + r.source.title;
+    if (r.notes && r.notes.length) msg += " — " + r.notes.join("; ");
+    // red flash when the paper arrived without any text: the user must know
+    // that summarise won't work until they attach the PDF
+    flash(msg, !r.source.has_text);
     $("ingest-id").value = "";
     await loadSources(); await loadStats();
   });

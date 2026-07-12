@@ -234,6 +234,53 @@ class TestFileArchive:
         assert list((tmp_path / "files").iterdir()) == []
 
 
+class TestAttach:
+    """E11-3: GUI 'Add PDF' — attach a manually-downloaded original."""
+
+    def _bare_source(self, client, title="Metadata Only"):
+        """A source without stored text (like a DOI ingest whose PDF 403'd)."""
+        response = client.post(
+            "/api/ingest/file", files={"file": (f"{title}.md", b"", "text/markdown")}
+        )
+        return response.json()["source"]["id"]
+
+    def test_attach_pdf_stores_text_and_archives(self, client, tmp_path):
+        import pymupdf
+
+        source_id = self._bare_source(client)
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "the manually downloaded full text")
+        data = doc.tobytes()
+        doc.close()
+        response = client.post(
+            f"/api/sources/{source_id}/attach",
+            files={"file": ("downloaded.pdf", data, "application/pdf")},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["summary_invalidated"] is False
+        source = client.get(f"/api/sources/{source_id}").json()
+        assert source["has_text"] is True
+        assert source["text_kind"] == "pymupdf"
+        assert source["file_name"].endswith(".pdf")
+        archived = tmp_path / "files" / source["file_name"]
+        assert archived.read_bytes() == data
+
+    def test_attach_refuses_replacing_full_text_409(self, client):
+        source_id = ingest_note(client)  # already has full plaintext
+        response = client.post(
+            f"/api/sources/{source_id}/attach",
+            files={"file": ("x.md", b"other text", "text/markdown")},
+        )
+        assert response.status_code == 409
+        assert "refusing to replace" in response.json()["detail"]
+
+    def test_attach_missing_source_404(self, client):
+        response = client.post(
+            "/api/sources/99/attach", files={"file": ("x.md", b"t", "text/markdown")}
+        )
+        assert response.status_code == 404
+
+
 class TestDelete:
     def test_delete_source_cascades(self, client):
         source_id = ingest_note(client)

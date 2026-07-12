@@ -124,3 +124,13 @@ class TestFetchFullText:
         result = fetch_full_text(make_meta(), "")
         assert result.text == ""
         assert result.pdf_bytes is None
+
+    def test_note_distinguishes_abstract_from_metadata_only(self, monkeypatch):
+        """E11-4: 'storing abstract only' must not be claimed when there is
+        no abstract — the user needs to know summarise won't work."""
+        self._patch_client(monkeypatch, b"never used")
+        with_abstract = fetch_full_text(make_meta(doi="10.1/x", abstract="an abstract"), "")
+        assert with_abstract.notes[-1] == "no downloadable PDF — storing abstract only"
+        without = fetch_full_text(make_meta(doi="10.1/x", abstract=""), "")
+        assert "stored metadata + BibTeX only" in without.notes[-1]
+        assert "attach" in without.notes[-1]

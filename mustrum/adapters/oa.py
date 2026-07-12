@@ -99,5 +99,10 @@ def fetch_full_text(meta: FetchedMetadata, unpaywall_email: str) -> FullTextResu
         notes.append(f"fetched full text from {url}")
         return FullTextResult(text=text, notes=notes, pdf_bytes=pdf_bytes)
     if candidates or meta.doi:
-        notes.append("no downloadable PDF — storing abstract only")
+        notes.append(
+            "no downloadable PDF — storing abstract only"
+            if meta.abstract
+            else "no downloadable PDF and no abstract — stored metadata + BibTeX "
+            "only; attach the paper manually (source attach / GUI Add PDF)"
+        )
     return FullTextResult(notes=notes)

@@ -98,7 +98,9 @@ stories at the bottom of the relevant epic.
 | ID | Story | Prio | Status |
 |---|---|---|---|
 | E11-1 | Local web GUI (`mustrum ui`): FastAPI JSON adapter + self-contained single-page frontend covering ingest, sources, summaries, matching, related-work, graph, brainstorm, contacts | S | done |
-| E11-2 | GUI: source attach/upload to existing record, tags editing, contact links, audit upload | C | todo |
+| E11-2 | GUI: tags editing, contact links, audit upload | C | todo |
+| E11-3 | GUI "Add PDF": attach a manually-downloaded PDF/text to an existing source from the source panel (`POST /api/sources/{id}/attach`); archives the original (E1-11), invalidates an upgraded abstract's summary — split out of E11-2 after live DOI-ingest testing | S | done |
+| E11-4 | Ingest feedback: GUI flash surfaces the PDF-fetch notes (failures were CLI-only); "no downloadable PDF" note distinguishes stored-abstract from metadata-only and points at attach — found when an ACM OA PDF 403'd silently in the GUI | S | done |
 
 ## Phase 3 — Anthropic provider
 

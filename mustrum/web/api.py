@@ -161,6 +161,31 @@ def create_app(
             path, media_type=media, filename=path.name, content_disposition_type="inline"
         )
 
+    @app.post("/api/sources/{source_id}/attach")
+    async def attach_file(source_id: int, file: UploadFile) -> dict[str, Any]:
+        """GUI counterpart of `source attach`: store the full text of a
+        manually-downloaded original and archive the file (E1-11/E11-3)."""
+        from mustrum.adapters.pdf import extract_pdf_bytes
+
+        name = file.filename or "upload"
+        data = await file.read()
+        if name.lower().endswith(".pdf"):
+            text = extract_pdf_bytes(data)
+            method = "pymupdf"
+        else:
+            text = data.decode("utf-8", errors="replace")
+            method = "plaintext"
+        had_summary = repo.get_summary(source_id) is not None
+        try:
+            IngestService(repo, embedder).attach_full_text(source_id, text, method)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        suffix = "." + name.rsplit(".", 1)[1].lower() if "." in name else ".txt"
+        archive_original(repo, config.files_dir, repo.get_source(source_id), data, suffix)
+        return {"ok": True, "summary_invalidated": had_summary}
+
     @app.post("/api/sources/{source_id}/status/{status}")
     async def set_status(source_id: int, status: str) -> dict[str, Any]:
         try:

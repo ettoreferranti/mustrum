@@ -108,3 +108,16 @@ entry but never replaces an existing one (attach, which explicitly supplies a
 new original, does replace). The plain-file export (E9-1) stays text-only:
 originals are not bundled, but `file_path` round-trips so a restored DB finds
 a copied `files/` directory again.
+
+## ADR-14 — Structured outputs constrain syntax, never content (2026-07-12, accepted)
+qwen3 front-loads untagged reasoning prose despite `think=false`, and a
+summarise run failed all three attempts with "no parsable output" (observed
+live; Ollama reported `done_reason=stop`, prompt 3.4k tokens of a 16k window
+— not truncation). LLMProvider therefore accepts an optional JSON schema and
+the Ollama adapter forwards it as `format`, making the reply parse by
+construction. This does not weaken the rigour kernel: constrained decoding
+shapes *syntax only*; evidence quotes still pass the GroundingVerifier
+verbatim, brainstorm's based_on titles are still resolved against real
+records, and nothing unverified is stored. Genuine truncation is now loud:
+`done_reason=length` raises "output truncated — raise num_ctx" instead of
+surfacing as a downstream parse/grounding failure.

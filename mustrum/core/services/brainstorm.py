@@ -68,10 +68,30 @@ class BrainstormService:
             + (f"Focus area: {focus}\n\n" if focus else "")
             + f"Propose {count} new research ideas as instructed."
         )
+        # structured output (ADR-14): syntactic shape only — the based_on
+        # quarantine (titles resolved against real records) stays in _parse
+        schema = {
+            "type": "object",
+            "properties": {
+                "ideas": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "based_on": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["title", "description"],
+                    },
+                }
+            },
+            "required": ["ideas"],
+        }
         feedback = ""
         last_raw = ""
         for _ in range(self._attempts):
-            raw = self._llm.generate(prompt + feedback, system=_SYSTEM)
+            raw = self._llm.generate(prompt + feedback, system=_SYSTEM, json_schema=schema)
             proposals = self._parse(raw, known_titles)
             if proposals:
                 return proposals[:count]

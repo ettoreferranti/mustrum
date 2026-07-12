@@ -53,6 +53,22 @@ class TestSummarise:
         assert "We propose the Transformer" in prompt
         assert "verbatim" in system or "EXACTLY" in system
 
+    def test_requests_structured_output_schema(self, repo, source_id):
+        """E3-5/ADR-14: the grounded loop constrains decoding to exactly its
+        shape — the schema is pinned in full because every key steers the
+        model's constrained sampling."""
+        llm = FakeLLMProvider([good_reply()])
+        SummariseService(repo, llm).summarise(source_id)
+        (schema,) = llm.schemas
+        assert schema == {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "quotes": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["summary", "quotes"],
+        }
+
     def test_existing_summary_returned_without_llm_call(self, repo, source_id):
         service = SummariseService(repo, FakeLLMProvider([good_reply()]))
         first = service.summarise(source_id)

@@ -83,11 +83,21 @@ def run_grounded(
     exhausting the attempts. Each retry tells the model exactly what was
     wrong with its previous reply.
     """
+    # structured output (ADR-14): guarantees the reply is syntactically valid
+    # JSON of this shape; the quotes are still verified against source_text
+    schema = {
+        "type": "object",
+        "properties": {
+            field: {"type": "string"},
+            "quotes": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": [field, "quotes"],
+    }
     feedback = ""
     last_result: GroundingResult | None = None
     last_raw = ""
     for _ in range(attempts):
-        raw = llm.generate(base_prompt + feedback, system=system)
+        raw = llm.generate(base_prompt + feedback, system=system, json_schema=schema)
         data = parse_json_object(raw)
         if data is None:
             last_raw = raw

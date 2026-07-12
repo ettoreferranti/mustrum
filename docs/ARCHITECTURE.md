@@ -2,9 +2,9 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-12 (E1-11: original-file archive — schema v2
-> `Source.file_path`, `adapters/archive.py`, `source open`, GUI file
-> endpoint).
+> Last updated: 2026-07-12 (E3-5: structured LLM outputs via optional
+> json_schema on LLMProvider, ADR-14; earlier same day E1-11 original-file
+> archive, ADR-13).
 
 ## 1. Overview
 
@@ -112,10 +112,14 @@ re-embedding.
 All defined as `typing.Protocol` in `core/ports.py`; core code never imports
 an adapter.
 
-- `LLMProvider.generate(task, context) -> str` — plain-text generation.
-  Implementations: `OllamaProvider` (phase 1), `AnthropicProvider` (phase 3),
-  `FakeProvider` (tests). The interface is deliberately minimal so swapping
-  providers is config-only.
+- `LLMProvider.generate(prompt, system=, json_schema=) -> str` — text
+  generation; an optional JSON schema requests structured output (ADR-14):
+  the provider constrains decoding so the reply is syntactically valid by
+  construction (Ollama: `format`; Anthropic later: tool/output schema).
+  Syntax only — content still goes through the verifiers. Implementations:
+  `OllamaLLM` (phase 1; raises loudly on `done_reason=length` truncation),
+  `AnthropicProvider` (phase 3), `FakeLLMProvider` (tests). The interface is
+  deliberately minimal so swapping providers is config-only.
 - `EmbeddingProvider.embed(texts) -> vectors` — Ollama (`nomic-embed-text`)
   first; same swap story.
 - `StorageRepo` — persistence for all entities + FTS queries. SQLite adapter.

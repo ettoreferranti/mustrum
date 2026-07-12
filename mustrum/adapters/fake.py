@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Sequence
+from typing import Any
 
 
 class FakeLLMProvider:
@@ -23,6 +24,7 @@ class FakeLLMProvider:
         self._responses = list(responses)
         self._default = default_response
         self.calls: list[tuple[str, str | None]] = []
+        self.schemas: list[dict[str, Any] | None] = []
 
     @property
     def model_name(self) -> str:
@@ -31,8 +33,15 @@ class FakeLLMProvider:
     def queue(self, *responses: str) -> None:
         self._responses.extend(responses)
 
-    def generate(self, prompt: str, *, system: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        json_schema: dict[str, Any] | None = None,
+    ) -> str:
         self.calls.append((prompt, system))
+        self.schemas.append(json_schema)
         if self._responses:
             return self._responses.pop(0)
         if self._default is not None:

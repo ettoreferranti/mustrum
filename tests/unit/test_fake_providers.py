@@ -31,6 +31,12 @@ class TestFakeLLMProvider:
         fake.generate("prompt", system="sys")
         assert fake.calls == [("prompt", "sys")]
 
+    def test_records_schemas(self):
+        fake = FakeLLMProvider(["r", "r"])
+        fake.generate("p", json_schema={"type": "object"})
+        fake.generate("p")
+        assert fake.schemas == [{"type": "object"}, None]
+
     def test_exhausted_raises(self):
         fake = FakeLLMProvider()
         with pytest.raises(RuntimeError, match="no queued response"):

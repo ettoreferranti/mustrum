@@ -108,6 +108,31 @@ class TestPropose:
         assert "Focus area: sustainability" in prompt
         assert "never invent" in system
 
+    def test_requests_structured_output_schema(self, library):
+        """E3-5/ADR-14: shape is constrained (pinned in full — every key
+        steers constrained sampling); the based_on quarantine stays."""
+        llm = FakeLLMProvider([reply(GOOD)])
+        BrainstormService(library, llm).propose()
+        (schema,) = llm.schemas
+        assert schema == {
+            "type": "object",
+            "properties": {
+                "ideas": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "based_on": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["title", "description"],
+                    },
+                }
+            },
+            "required": ["ideas"],
+        }
+
     def test_unparsable_reply_retries_then_fails(self, library):
         llm = FakeLLMProvider(["junk", "more junk", "still junk"])
         service = BrainstormService(library, llm, attempts=3)

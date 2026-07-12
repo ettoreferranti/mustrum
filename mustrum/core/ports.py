@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from mustrum.core.models import (
     BibEntry,
@@ -30,12 +30,23 @@ from mustrum.core.models import (
 
 
 class LLMProvider(Protocol):
-    """Text generation. Output is always untrusted and must be verified (ADR-7)."""
+    """Text generation. Output is always untrusted and must be verified (ADR-7).
+
+    `json_schema` requests structured output: the provider constrains
+    decoding so the reply is a syntactically valid instance of the schema
+    (ADR-14). Syntax only — content still goes through the verifiers.
+    """
 
     @property
     def model_name(self) -> str: ...
 
-    def generate(self, prompt: str, *, system: str | None = None) -> str: ...
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        json_schema: dict[str, Any] | None = None,
+    ) -> str: ...
 
 
 class EmbeddingProvider(Protocol):

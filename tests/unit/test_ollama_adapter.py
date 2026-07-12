@@ -1,6 +1,7 @@
 """Offline tests for the Ollama adapters using httpx.MockTransport."""
 
 import json
+import typing
 
 import httpx
 import pytest
@@ -74,6 +75,49 @@ class TestOllamaLLM:
 
     def test_model_name(self):
         assert OllamaLLM("qwen3:30b").model_name == "qwen3:30b"
+
+
+class TestStructuredOutput:
+    """E3-5 / ADR-14: json_schema becomes Ollama's `format`; truncation is loud."""
+
+    SCHEMA: typing.ClassVar[dict] = {
+        "type": "object",
+        "properties": {"summary": {"type": "string"}},
+        "required": ["summary"],
+    }
+
+    def test_schema_sent_as_format(self):
+        seen = {}
+
+        def handler(request):
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": '{"summary": "s"}'})
+
+        OllamaLLM("m", client=mock_client(handler)).generate("p", json_schema=self.SCHEMA)
+        assert seen["payload"]["format"] == self.SCHEMA
+
+    def test_format_omitted_without_schema(self):
+        seen = {}
+
+        def handler(request):
+            seen["payload"] = json.loads(request.content)
+            return httpx.Response(200, json={"response": "ok"})
+
+        OllamaLLM("m", client=mock_client(handler)).generate("p")
+        assert "format" not in seen["payload"]
+
+    def test_truncated_output_raises(self):
+        def handler(request):
+            return httpx.Response(200, json={"response": "cut off mid", "done_reason": "length"})
+
+        with pytest.raises(OllamaError, match=r"truncated.*num_ctx=16384"):
+            OllamaLLM("m", client=mock_client(handler)).generate("p")
+
+    def test_normal_stop_is_fine(self):
+        def handler(request):
+            return httpx.Response(200, json={"response": "done", "done_reason": "stop"})
+
+        assert OllamaLLM("m", client=mock_client(handler)).generate("p") == "done"
 
 
 class TestOllamaEmbedder:

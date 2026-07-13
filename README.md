@@ -135,7 +135,9 @@ the archive for sources ingested before this feature.
 | `mustrum contact list` | Browse contacts |
 | `mustrum brainstorm` | Creative mode: propose NEW research ideas from your library (`-n`, `--focus`, `--save`). Output is labelled machine-generated, cites nothing, and is quarantined from all citation-bearing features |
 | `mustrum ui` | Launch the local web GUI (`--port`, `--no-open`) |
-| `mustrum config` | Show effective configuration (`--init` writes a template) |
+| `mustrum config show` | Show the effective configuration and where each setting comes from |
+| `mustrum config init` | Write a commented global bootstrap template (sets `db_path`) |
+| `mustrum config set --llm-model X --num-ctx N ...` | Edit the library's own settings (model choice, context sizes, Unpaywall e-mail) — same as the UI Settings panel |
 | `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
 | `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |
 
@@ -149,21 +151,34 @@ Your entire library — sources, verbatim texts, summaries, ideas, matches,
 BibTeX, contacts, embeddings — lives in **one SQLite file**
 (`~/.mustrum/mustrum.db` by default), with the archived original files in a
 `files/` directory beside it: back up (or sync) the folder containing the DB
-and you have everything. Run `mustrum config --init` to create a
-commented config template at `~/.config/mustrum/config.toml`, then point
-`db_path` into a synced folder to keep the library in the cloud:
+and you have everything, including its settings.
+
+There are two config files. The **global bootstrap file**
+(`~/.config/mustrum/config.toml`, created by `mustrum config init`) has one
+real job: pointing `db_path` at your library, e.g. to keep it in the cloud:
 
 ```toml
 db_path = "~/Library/Mobile Documents/com~apple~CloudDocs/mustrum/mustrum.db"  # iCloud
 # db_path = "~/OneDrive/mustrum/mustrum.db"
-unpaywall_email = "you@example.org"   # enables open-access PDF lookup by DOI
 ```
 
-`mustrum config` shows the effective settings; `MUSTRUM_DB` overrides the
-path per invocation. Two rules for synced libraries: never run mustrum on two
-machines against the same file simultaneously, and let the sync client finish
-before switching machines. The config file (and your e-mail in it) stays on
-your machine — nothing personal is ever part of this repository, enforced by
+Everything else — Ollama URL, model choice, context sizes, the Unpaywall
+e-mail — belongs in the **library config file**, `config.toml` sitting next
+to `mustrum.db` itself. It travels with the library (so a synced/backed-up
+library folder carries its own settings, not just data) and is edited with
+`mustrum config set --llm-model llama3.1:8b --unpaywall-email you@example.org`
+or the **Settings panel in the UI** (`mustrum ui` → Settings tab) — never by
+hand-editing required, though it's a plain commented TOML file if you prefer
+that. Changes take effect on the next `mustrum` invocation / `mustrum ui`
+restart; a running `mustrum ui` process does not hot-reload them, since its
+Ollama clients are built once at startup.
+
+`mustrum config show` prints the effective settings and where each one came
+from (defaults ← global file ← library file ← `MUSTRUM_DB`/`MUSTRUM_OLLAMA_URL`
+env vars, in that order). Two rules for synced libraries: never run mustrum
+on two machines against the same file simultaneously, and let the sync
+client finish before switching machines. Both config files stay on your
+machine — nothing personal is ever part of this repository, enforced by
 `tests/unit/test_privacy.py`.
 
 ## Status

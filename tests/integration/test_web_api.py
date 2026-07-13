@@ -347,6 +347,48 @@ class TestEditMetadata:
         assert client.post("/api/sources/99/metadata", json={"year": 2020}).status_code == 404
 
 
+class TestSettings:
+    """E12-1: library-local settings, editable from the GUI (or `config set`)."""
+
+    def test_get_reflects_startup_config(self, client, tmp_path):
+        # /api/settings reports config.embed_model (what Ollama model name to
+        # request) — distinct from embedder.model_name ("fake-embed" in
+        # tests), which is what's actually wired in and shown by /api/status
+        data = client.get("/api/settings").json()
+        assert data["llm_model"] == "qwen3:30b"
+        assert data["embed_model"] == "nomic-embed-text"
+        assert data["db_path"] == str(tmp_path / "web.db")
+        assert data["library_config_path"] == str(tmp_path / "config.toml")
+        assert data["library_config_exists"] is False
+
+    def test_post_writes_library_config_and_reports_new_values(self, client, tmp_path):
+        response = client.post("/api/settings", json={"llm_model": "llama3.1:8b", "num_ctx": 8192})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["llm_model"] == "llama3.1:8b"
+        assert data["num_ctx"] == 8192
+        assert data["restart_required"] is True
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_model = "llama3.1:8b"' in content
+        assert "num_ctx = 8192" in content
+
+    def test_running_process_config_unaffected_until_restart(self, client):
+        """Save+restart-notice (not hot-apply): a second GET must still show
+        the process's original startup values, not what was just written."""
+        client.post("/api/settings", json={"llm_model": "llama3.1:8b"})
+        assert client.get("/api/settings").json()["llm_model"] == "qwen3:30b"
+
+    def test_empty_payload_400(self, client):
+        assert client.post("/api/settings", json={}).status_code == 400
+
+    def test_partial_update_preserves_other_fields(self, client, tmp_path):
+        client.post("/api/settings", json={"llm_model": "llama3.1:8b"})
+        client.post("/api/settings", json={"num_ctx": 8192})
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_model = "llama3.1:8b"' in content
+        assert "num_ctx = 8192" in content
+
+
 class TestErrorLogging:
     """E11-5: failed API calls leave a durable record in the ui terminal."""
 

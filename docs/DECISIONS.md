@@ -132,3 +132,26 @@ digits, punctuation, and caseless scripts stay strict). Everything beyond
 the first character remains exact — "observe" for "observed" is still
 rejected, as is any mid-quote case change. verify.py remains at 100%
 mutation score; the variant helper is pinned by direct edge tests.
+
+## ADR-16 — Library settings live next to the database, not just under ~/.config (2026-07-13, accepted)
+Requested: an editable settings file that travels with the library, plus a
+GUI way to change it. Two files now exist, in precedence order: the global
+bootstrap file (`~/.config/mustrum/config.toml`) whose only essential job is
+setting `db_path`; and the library file (`<db_path's folder>/config.toml`,
+`Config.library_config_path`), which holds everything else — Ollama URL,
+model choice, context sizes, the Unpaywall e-mail — and is written by
+`mustrum config set` or the GUI Settings panel (`save_library_config`,
+`POST /api/settings`). The library file never sets `db_path` itself (that
+would be self-referential); env vars (`MUSTRUM_DB`/`MUSTRUM_OLLAMA_URL`)
+remain the final, most-explicit override. Backing up or syncing the folder
+containing `mustrum.db` now carries data, archived originals (ADR-13), and
+settings as one unit. Apply model is save-then-restart-notice, not hot-reload:
+a running `mustrum ui` process built its Ollama clients at startup, and
+`POST /api/settings` deliberately does not reach into that already-running
+process — reconfiguring embed_model mid-session would silently desync
+existing embeddings from new ones without a full re-embed, which is exactly
+the kind of correctness trap ADR-9's abstract-upgrade handling was designed
+to avoid elsewhere; the simpler, safer contract here is "persisted now,
+effective on next start". The `config` CLI command became a subgroup
+(`show` / `init` / `set`) to make `set` a natural sibling — a documented,
+tested break from the single-command form.

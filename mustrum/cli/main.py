@@ -46,11 +46,15 @@ source_app = typer.Typer(help="Browse and annotate sources.")
 idea_app = typer.Typer(help="Capture and evolve research ideas.")
 match_app = typer.Typer(help="Match ideas with sources.")
 contact_app = typer.Typer(help="People and institutions related to your work.")
+config_app = typer.Typer(
+    help="Effective settings, global bootstrap file, and per-library settings."
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(source_app, name="source")
 app.add_typer(idea_app, name="idea")
 app.add_typer(match_app, name="match")
 app.add_typer(contact_app, name="contact")
+app.add_typer(config_app, name="config")
 
 
 @dataclass
@@ -1010,7 +1014,11 @@ def restore_cmd(directory: Path) -> None:
 
 
 _CONFIG_TEMPLATE = """\
-# Mustrum configuration — local to this machine, never part of any repo.
+# Mustrum GLOBAL configuration — local to this machine, never part of any
+# repo. This file's only real job is pointing at your library; everything
+# else (models, context sizes, Unpaywall e-mail) belongs in the LIBRARY
+# config, which lives next to mustrum.db and travels with it — set those
+# with `mustrum config set` or the UI Settings panel, not here.
 
 # Your ENTIRE library (sources, texts, summaries, ideas, matches, BibTeX,
 # contacts, embeddings) lives in one SQLite file. Point db_path into a synced
@@ -1021,42 +1029,26 @@ _CONFIG_TEMPLATE = """\
 # Original files (ingested/fetched PDFs) are archived in a `files/` directory
 # next to the database, so backing up the db_path folder captures everything.
 #db_path = "~/.mustrum/mustrum.db"
-
-#ollama_url = "http://localhost:11434"
-#llm_model = "qwen3:30b"
-#embed_model = "nomic-embed-text"
-#max_source_chars = 16000
-#num_ctx = 16384
-
-# Contact e-mail for the Unpaywall API — enables open-access PDF download
-# when ingesting by DOI. Stays on this machine.
-#unpaywall_email = "you@example.org"
 """
 
 
-@app.command("config")
-def config_cmd(
-    init: Annotated[
-        bool, typer.Option("--init", help="Write a commented template config file.")
-    ] = False,
+@config_app.command("show")
+def config_show(
     path: Annotated[
-        Path | None, typer.Option("--path", help="Config file location (default: standard path).")
+        Path | None,
+        typer.Option("--path", help="Global config file location (default: standard path)."),
     ] = None,
 ) -> None:
-    """Show the effective configuration (or create a template with --init)."""
+    """Show the effective configuration: defaults, the global bootstrap
+    file, then the per-library settings file next to the database."""
     from mustrum.config import DEFAULT_CONFIG_PATH
 
     config_path = path or DEFAULT_CONFIG_PATH
-    if init:
-        if config_path.exists():
-            _fail(f"{config_path} already exists — edit it directly")
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_CONFIG_TEMPLATE)
-        typer.echo(f"wrote {config_path}")
-        return
     config = load_config(path)
-    state = "present" if config_path.is_file() else "absent — defaults in effect"
-    typer.echo(f"config file:      {config_path} ({state})")
+    global_state = "present" if config_path.is_file() else "absent — defaults in effect"
+    lib_state = "present" if config.library_config_path.is_file() else "absent"
+    typer.echo(f"global config:    {config_path} ({global_state})")
+    typer.echo(f"library config:   {config.library_config_path} ({lib_state})")
     typer.echo(f"db_path:          {config.db_path}")
     typer.echo(f"files_dir:        {config.files_dir} (originals archive, follows db_path)")
     typer.echo(f"ollama_url:       {config.ollama_url}")
@@ -1065,6 +1057,61 @@ def config_cmd(
     typer.echo(f"max_source_chars: {config.max_source_chars}")
     typer.echo(f"num_ctx:          {config.num_ctx}")
     typer.echo(f"unpaywall_email:  {config.unpaywall_email or '(unset — OA PDF lookup disabled)'}")
+
+
+@config_app.command("init")
+def config_init(
+    path: Annotated[
+        Path | None, typer.Option("--path", help="Config file location (default: standard path).")
+    ] = None,
+) -> None:
+    """Write a commented global bootstrap template (sets db_path; for
+    per-library model/context settings use `config set` instead)."""
+    from mustrum.config import DEFAULT_CONFIG_PATH
+
+    config_path = path or DEFAULT_CONFIG_PATH
+    if config_path.exists():
+        _fail(f"{config_path} already exists — edit it directly")
+        return
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(_CONFIG_TEMPLATE)
+    typer.echo(f"wrote {config_path}")
+
+
+@config_app.command("set")
+def config_set(
+    ollama_url: Annotated[str | None, typer.Option("--ollama-url")] = None,
+    llm_model: Annotated[str | None, typer.Option("--llm-model")] = None,
+    embed_model: Annotated[str | None, typer.Option("--embed-model")] = None,
+    max_source_chars: Annotated[int | None, typer.Option("--max-source-chars")] = None,
+    num_ctx: Annotated[int | None, typer.Option("--num-ctx")] = None,
+    unpaywall_email: Annotated[str | None, typer.Option("--unpaywall-email")] = None,
+) -> None:
+    """Set one or more settings in the library's own config file — the one
+    next to the database, so it travels with the library (ADR-16). Restart
+    `mustrum ui` if it's running, for the change to take effect there."""
+    from mustrum.config import save_library_config
+
+    updates = {
+        k: v
+        for k, v in {
+            "ollama_url": ollama_url,
+            "llm_model": llm_model,
+            "embed_model": embed_model,
+            "max_source_chars": max_source_chars,
+            "num_ctx": num_ctx,
+            "unpaywall_email": unpaywall_email,
+        }.items()
+        if v is not None
+    }
+    if not updates:
+        _fail("nothing to set — give at least one option (see: mustrum config set --help)")
+        return
+    updated = save_library_config(load_config(), updates)
+    typer.echo(f"wrote {updated.library_config_path}")
+    for key, value in updates.items():
+        typer.echo(f"  {key} = {value}")
+    typer.echo("restart `mustrum ui` if it's running, for the change to take effect there")
 
 
 @app.command("search")

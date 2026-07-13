@@ -1114,6 +1114,33 @@ def config_set(
     typer.echo("restart `mustrum ui` if it's running, for the change to take effect there")
 
 
+@config_app.command("models")
+def config_models() -> None:
+    """List models installed on the currently configured Ollama instance
+    (same list the GUI Settings dropdowns use, E12-2)."""
+    from mustrum.adapters.ollama import OllamaError, list_models
+
+    config = load_config()
+    try:
+        models = list_models(config.ollama_url)
+    except OllamaError as exc:
+        _fail(str(exc))
+        return
+    if not models:
+        typer.echo(f"no models found at {config.ollama_url}")
+        return
+    for name in models:
+        roles = [
+            role
+            for role, current in (
+                ("llm_model", config.llm_model),
+                ("embed_model", config.embed_model),
+            )
+            if name == current
+        ]
+        typer.echo(f"{name}" + (f"  ({', '.join(roles)})" if roles else ""))
+
+
 @app.command("search")
 def search(query: str, limit: int = 20) -> None:
     """Full-text search across sources, ideas, summaries, and contacts."""

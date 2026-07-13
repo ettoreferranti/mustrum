@@ -206,14 +206,16 @@
       <code id="set-path" style="word-break:break-all"></code> — lives next to
       the database, so it travels with the library. Changes apply after
       restarting <code>mustrum ui</code>.</p>
-    <div class="inline"><input type="text" id="set-ollama-url" placeholder="Ollama URL"></div>
-    <div class="inline"><input type="text" id="set-llm-model" placeholder="LLM model"></div>
-    <div class="inline"><input type="text" id="set-embed-model" placeholder="Embedding model"></div>
+    <div class="inline">Ollama URL: <input type="text" id="set-ollama-url" placeholder="Ollama URL">
+      <button class="ghost" onclick="refreshOllamaModels()">Refresh models</button></div>
+    <p class="meta" id="set-models-status" style="color:var(--muted)"></p>
+    <div class="inline">LLM Model:<select id="set-llm-model"></select></div>
+    <div class="inline">Embedding Model:<select id="set-embed-model"></select></div>
     <div class="inline">
-      <input type="text" id="set-max-chars" placeholder="max_source_chars" style="max-width:180px">
-      <input type="text" id="set-num-ctx" placeholder="num_ctx" style="max-width:180px">
+    <div class="inline">Max Source Characters:<input type="text" id="set-max-chars" placeholder="max_source_chars" style="max-width:180px"></div>
+    <div class="inline">Max Context Size:<input type="text" id="set-num-ctx" placeholder="num_ctx" style="max-width:180px"></div>
     </div>
-    <div class="inline"><input type="text" id="set-unpaywall" placeholder="Unpaywall e-mail (optional)"></div>
+    <div class="inline">Unpaywall email (optional):<input type="text" id="set-unpaywall" placeholder="Unpaywall e-mail (optional)"></div>
     <button class="act" onclick="saveSettings()">Save settings</button>
   </div>
 </section>
@@ -735,11 +737,38 @@ async function loadSettings() {
   const s = await api("/api/settings");
   $("set-path").textContent = s.library_config_path;
   $("set-ollama-url").value = s.ollama_url;
-  $("set-llm-model").value = s.llm_model;
-  $("set-embed-model").value = s.embed_model;
   $("set-max-chars").value = s.max_source_chars;
   $("set-num-ctx").value = s.num_ctx;
   $("set-unpaywall").value = s.unpaywall_email;
+  await fetchOllamaModels(s.ollama_url, s.llm_model, s.embed_model);
+}
+function populateModelSelect(select, models, current) {
+  // the currently configured value is always kept selectable, even if it's
+  // not in the fetched list (Ollama down, model not pulled here, etc.) — a
+  // failed/partial fetch must never silently change what's selected
+  const options = new Set(models);
+  if (current) options.add(current);
+  const sorted = [...options].sort();
+  select.innerHTML = sorted.length
+    ? sorted.map(m => `<option value="${esc(m)}" ${m === current ? "selected" : ""}>${esc(m)}</option>`).join("")
+    : `<option value="${esc(current || "")}">${esc(current || "(none)")}</option>`;
+}
+async function fetchOllamaModels(url, currentLlm, currentEmbed) {
+  currentLlm = currentLlm ?? $("set-llm-model").value;
+  currentEmbed = currentEmbed ?? $("set-embed-model").value;
+  $("set-models-status").textContent = `fetching models from ${url}…`;
+  let data;
+  try { data = await api("/api/ollama/models?url=" + encodeURIComponent(url)); }
+  catch (e) { data = {models: [], error: e.message}; }
+  populateModelSelect($("set-llm-model"), data.models, currentLlm);
+  populateModelSelect($("set-embed-model"), data.models, currentEmbed);
+  $("set-models-status").textContent = data.error
+    ? `Ollama unreachable at ${url} (${data.error}) — showing the current value only; ` +
+      `edit the TOML directly or via \`mustrum config set\` for a model not yet pulled`
+    : `${data.models.length} model(s) found at ${url}`;
+}
+async function refreshOllamaModels() {
+  await fetchOllamaModels($("set-ollama-url").value.trim());
 }
 async function saveSettings() {
   const maxChars = parseInt($("set-max-chars").value, 10);
@@ -751,8 +780,8 @@ async function saveSettings() {
   try {
     await post("/api/settings", {
       ollama_url: $("set-ollama-url").value.trim(),
-      llm_model: $("set-llm-model").value.trim(),
-      embed_model: $("set-embed-model").value.trim(),
+      llm_model: $("set-llm-model").value,
+      embed_model: $("set-embed-model").value,
       max_source_chars: maxChars,
       num_ctx: numCtx,
       unpaywall_email: $("set-unpaywall").value.trim(),

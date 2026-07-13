@@ -403,6 +403,30 @@ class TestConfigCommand:
     def test_set_rejects_non_numeric_num_ctx(self):
         invoke("config", "set", "--num-ctx", "not-a-number", expect_exit=2)
 
+    def test_models_lists_installed_and_marks_current(self, monkeypatch):
+        """E12-2: same list the GUI Settings dropdowns fetch."""
+        monkeypatch.setattr(
+            "mustrum.adapters.ollama.list_models",
+            lambda url, **kw: ["qwen3:30b", "nomic-embed-text", "llama3.1:8b"],
+        )
+        out = invoke("config", "models")
+        assert "qwen3:30b  (llm_model)" in out
+        assert "nomic-embed-text  (embed_model)" in out
+        assert "llama3.1:8b" in out and "llama3.1:8b  (" not in out
+
+    def test_models_empty_list(self, monkeypatch):
+        monkeypatch.setattr("mustrum.adapters.ollama.list_models", lambda url, **kw: [])
+        assert "no models found" in invoke("config", "models")
+
+    def test_models_unreachable_ollama_fails_cleanly(self, monkeypatch):
+        def raiser(url, **kw):
+            from mustrum.adapters.ollama import OllamaError
+
+            raise OllamaError("boom")
+
+        monkeypatch.setattr("mustrum.adapters.ollama.list_models", raiser)
+        invoke("config", "models", expect_exit=1)
+
 
 class TestSourceAttach:
     def test_attach_pdf_to_abstract_only_source(self, tmp_path, monkeypatch):

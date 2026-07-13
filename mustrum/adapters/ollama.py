@@ -31,6 +31,30 @@ def _post(client: httpx.Client, url: str, payload: dict[str, Any]) -> dict[str, 
     return data
 
 
+def _get(client: httpx.Client, url: str) -> dict[str, Any]:
+    try:
+        response = client.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise OllamaError(f"Ollama request failed: {exc}") from exc
+    data: dict[str, Any] = response.json()
+    return data
+
+
+def list_models(
+    base_url: str, client: httpx.Client | None = None, timeout: float = 10.0
+) -> list[str]:
+    """Names of models installed on a running Ollama instance (`/api/tags`),
+    for populating the model dropdowns in the Settings UI (E12-2)."""
+    c = client or httpx.Client(timeout=timeout)
+    data = _get(c, f"{base_url.rstrip('/')}/api/tags")
+    models = data.get("models")
+    if not isinstance(models, list):
+        raise OllamaError(f"malformed Ollama tags response: {data!r}")
+    names = {m.get("name") or m.get("model") for m in models if isinstance(m, dict)}
+    return sorted(n for n in names if isinstance(n, str) and n)
+
+
 class OllamaLLM:
     def __init__(
         self,

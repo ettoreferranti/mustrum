@@ -92,6 +92,7 @@
   <button data-tab="ideas">Ideas &amp; Matching</button>
   <button data-tab="graph">Graph</button>
   <button data-tab="brainstorm">Brainstorm</button>
+  <button data-tab="chat">Chat</button>
   <button data-tab="contacts">Contacts</button>
   <button data-tab="settings">Settings</button>
 </nav>
@@ -176,6 +177,21 @@
     <div id="bs-results"></div>
     <div class="inline" id="bs-save-bar" style="display:none">
       <button class="act" onclick="saveBrainstormSelected()">Save selected (<span id="bs-save-count">0</span>)</button>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="tab-chat">
+  <div class="card" style="max-width:720px">
+    <div class="banner">Every reply is grounded — quotes are verified against your
+      library, same as summaries. Prior turns only help resolve follow-ups
+      like "it"; they're never themselves evidence.</div>
+    <div id="chat-log" style="max-height:420px;overflow-y:auto;margin-bottom:8px"></div>
+    <div class="inline">
+      <input type="text" id="chat-input" placeholder="Ask about your library…"
+        style="flex:1" onkeydown="if(event.key==='Enter')sendChatMessage()">
+      <button class="act" id="chat-send" onclick="sendChatMessage()">Send</button>
+      <button onclick="resetChat()">New chat</button>
     </div>
   </div>
 </section>
@@ -740,6 +756,37 @@ async function saveBrainstormSelected() {
   $("bs-save-bar").style.display = "none";
   await loadIdeas(); await loadStats();
   flash(`saved ${r.saved.length} idea(s) (tagged "brainstorm")`);
+}
+
+// ---- chat ----
+let chatMessages = [];
+function renderChat() {
+  $("chat-log").innerHTML = chatMessages.map(m => {
+    if (m.role === "you") return `<div class="list-item"><b>you:</b> ${esc(m.text)}</div>`;
+    const cited = [...new Set((m.evidence || []).map(e => e.source_id))];
+    const sources = cited.length
+      ? `<div class="meta">sources: ${cited.map(i => `[${i}]`).join(", ")}</div>` : "";
+    return `<div class="list-item"><b>mustrum:</b> ${esc(m.text)}${sources}</div>`;
+  }).join("") || "<p style='color:var(--muted)'>Ask a question about your library to start.</p>";
+  $("chat-log").scrollTop = $("chat-log").scrollHeight;
+}
+async function sendChatMessage() {
+  const input = $("chat-input");
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = "";
+  chatMessages.push({role: "you", text: question});
+  renderChat();
+  await busy($("chat-send"), async () => {
+    const r = await post("/api/chat", {question});
+    chatMessages.push({role: "mustrum", text: r.answer, evidence: r.evidence});
+    renderChat();
+  });
+}
+async function resetChat() {
+  await post("/api/chat/reset");
+  chatMessages = [];
+  renderChat();
 }
 
 // ---- contacts ----

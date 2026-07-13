@@ -30,9 +30,11 @@ from mustrum.core.models import (
 )
 from mustrum.core.ports import EmbeddingProvider, LLMProvider, StorageRepo
 from mustrum.core.services.brainstorm import BRAINSTORM_TAG, BrainstormFailure, BrainstormService
+from mustrum.core.services.chat import ChatSession
 from mustrum.core.services.ideas import IdeaService
 from mustrum.core.services.ingest import DuplicateSourceError, IngestService
 from mustrum.core.services.match import MatchService
+from mustrum.core.services.query import QueryFailure, QueryService
 from mustrum.core.services.rationale import RationaleFailure, RationaleService
 from mustrum.core.services.relatedwork import RelatedWorkService
 from mustrum.core.services.summarise import GroundingFailure, SummariseService
@@ -59,6 +61,10 @@ class SuggestPayload(BaseModel):
 class BrainstormPayload(BaseModel):
     count: int = 3
     focus: str = ""
+
+
+class ChatPayload(BaseModel):
+    question: str
 
 
 class BrainstormIdeaPayload(BaseModel):
@@ -160,6 +166,16 @@ def create_app(
 
     def summariser() -> SummariseService:
         return SummariseService(repo, llm, max_source_chars=config.max_source_chars)
+
+    # one session for the lifetime of this running `mustrum ui` process —
+    # unlike the other services above (rebuilt fresh per request), chat
+    # state must persist *across* requests, and this is a single-user local
+    # app with no auth/multi-session concept anywhere else to hang it off
+    chat_session = ChatSession(
+        QueryService(
+            repo, llm, embedder, config.embed_model, max_source_chars=config.max_source_chars
+        )
+    )
 
     # -- pages ------------------------------------------------------------
 
@@ -564,6 +580,27 @@ def create_app(
             repo.tag(EntityKind.IDEA, idea.id, BRAINSTORM_TAG)
             saved.append({"id": idea.id, "title": idea.title})
         return {"saved": saved}
+
+    @app.post("/api/chat")
+    async def chat(payload: ChatPayload) -> dict[str, Any]:
+        """One grounded turn in the running GUI chat session (E13-2). Prior
+        turns shape retrieval/interpretation only — see ADR-18 — every
+        answer is grounded exactly like a single QueryService.ask() call."""
+        try:
+            answer = chat_session.ask(payload.question)
+        except QueryFailure as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {
+            "answer": answer.answer,
+            "found": answer.found,
+            "evidence": [{"source_id": e.source_id, "quote": e.quote} for e in answer.evidence],
+            "considered_source_ids": list(answer.considered_source_ids),
+        }
+
+    @app.post("/api/chat/reset")
+    async def reset_chat() -> dict[str, Any]:
+        chat_session.reset()
+        return {"reset": True}
 
     @app.get("/api/contacts")
     async def contacts() -> list[dict[str, Any]]:

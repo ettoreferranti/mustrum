@@ -966,6 +966,43 @@ def brainstorm(
         typer.echo("\n(re-run with --save to keep them, or: mustrum idea new ...)")
 
 
+@app.command("chat")
+def chat() -> None:
+    """Interactive grounded Q&A over your library. Type 'exit' or Ctrl+D to quit."""
+    from mustrum.core.services.chat import ChatSession
+    from mustrum.core.services.query import QueryFailure, QueryService
+
+    ctx = _context()
+    service = QueryService(
+        ctx.repo,
+        ctx.llm,
+        ctx.embedder,
+        ctx.config.embed_model,
+        max_source_chars=ctx.config.max_source_chars,
+    )
+    session = ChatSession(service)
+    typer.echo("mustrum chat — ask about your library. Type 'exit' or Ctrl+D to quit.")
+    while True:
+        try:
+            question = input("you> ")
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not question.strip():
+            continue
+        if question.strip().lower() in {"exit", "quit"}:
+            break
+        try:
+            answer = session.ask(question)
+        except QueryFailure as exc:
+            typer.secho(f"(couldn't produce a grounded answer: {exc})", fg=typer.colors.RED)
+            continue
+        typer.echo(answer.answer)
+        if answer.evidence:
+            cited = dict.fromkeys(ev.source_id for ev in answer.evidence)
+            typer.secho(f"  sources: {', '.join(f'[{i}]' for i in cited)}", fg=typer.colors.CYAN)
+    typer.echo("bye.")
+
+
 @app.command("export")
 def export_cmd(
     directory: Path,

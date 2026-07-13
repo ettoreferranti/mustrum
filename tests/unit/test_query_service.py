@@ -435,3 +435,69 @@ class TestAsk:
             QueryService(repo, llm, embedder, embedder.model_name, attempts=1).ask(
                 "solar and molecules"
             )
+
+
+class TestHistoryAndExtraCandidates:
+    def test_history_rendered_in_prompt(self, repo, embedder):
+        source = ingest(repo, embedder, "Solar PV study", SOLAR_TEXT)
+        llm = FakeLLMProvider(
+            [found_reply(source.id, "Renewable energy generation from solar arrays")]
+        )
+        QueryService(repo, llm, embedder, embedder.model_name).ask(
+            "solar",
+            history=[("what papers do I have", "Just one, about solar panels.")],
+        )
+        prompt, _ = llm.calls[0]
+        assert "Recent conversation" in prompt
+        assert "Q: what papers do I have" in prompt
+        assert "A: Just one, about solar panels." in prompt
+        # history precedes the current question in the prompt
+        assert prompt.index("Recent conversation") < prompt.index("Question: solar")
+
+    def test_history_answer_text_truncated(self, repo, embedder):
+        source = ingest(repo, embedder, "Solar PV study", SOLAR_TEXT)
+        llm = FakeLLMProvider(
+            [found_reply(source.id, "Renewable energy generation from solar arrays")]
+        )
+        long_prior_answer = "x" * 1000
+        QueryService(repo, llm, embedder, embedder.model_name).ask(
+            "solar", history=[("q", long_prior_answer)]
+        )
+        prompt, _ = llm.calls[0]
+        assert "x" * 1000 not in prompt
+        assert "x" * 300 in prompt
+
+    def test_history_text_is_not_treated_as_evidence(self, repo, embedder):
+        # a quote that only exists in prior *conversation* text, not in the
+        # claimed source's actual stored text, must still fail verification —
+        # proving history never reaches the `sources` grounding check
+        source = ingest(repo, embedder, "Solar PV study", SOLAR_TEXT)
+        bad = found_reply(source.id, "a phrase that only exists in the chat history")
+        llm = FakeLLMProvider([bad])
+        with pytest.raises(QueryFailure, match="failed grounding after 1 attempts"):
+            QueryService(repo, llm, embedder, embedder.model_name, attempts=1).ask(
+                "solar",
+                history=[("q", "a phrase that only exists in the chat history")],
+            )
+
+    def test_extra_candidate_ids_seed_retrieval(self, repo, embedder):
+        # a source that matches neither FTS nor embedding for this query can
+        # still be considered if explicitly seeded (e.g. a chat session's
+        # sticky id from a prior turn's citation)
+        unrelated = ingest(repo, embedder, "Molecular graph networks", MOLECULE_TEXT)
+        llm = FakeLLMProvider(
+            [not_found_reply()]  # honest: the seeded candidate isn't actually relevant
+        )
+        answer = QueryService(repo, llm, embedder, embedder.model_name).ask(
+            "renewable energy solar", extra_candidate_ids=[unrelated.id]
+        )
+        assert unrelated.id in answer.considered_source_ids
+
+    def test_extra_candidate_ids_respect_top_k(self, repo, embedder):
+        a = ingest(repo, embedder, "Paper A", "alpha content here")
+        b = ingest(repo, embedder, "Paper B", "beta content here")
+        llm = FakeLLMProvider([not_found_reply()])
+        answer = QueryService(repo, llm, embedder, embedder.model_name, top_k=1).ask(
+            "unrelated query text", extra_candidate_ids=[a.id, b.id]
+        )
+        assert answer.considered_source_ids == (a.id,)

@@ -2,10 +2,13 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (E13-3: MCP server adapter — `mustrum/mcp/
-> server.py`, `mustrum mcp` (stdio), read-only `search_library`/`get_source`/
-> `get_idea`/`list_citations`, ADR-19, zero core changes, no LLM call;
-> earlier same day E13-2: conversational grounded chat —
+> Last updated: 2026-07-13 (E13-4: MCP resources — every source/idea listed
+> as an individually-readable `mustrum://sources|ideas/{id}` resource
+> alongside E13-3's tools, ADR-20; earlier same day E13-3: MCP server
+> adapter — `mustrum/mcp/server.py`, `mustrum mcp` (stdio), read-only
+> `search_library`/`get_source`/`get_idea`/`list_citations`, ADR-19, zero
+> core changes, no LLM call; earlier same day E13-2: conversational
+> grounded chat —
 > `core/services/chat.py::ChatSession` + `QueryService.ask()`'s new
 > `history`/`extra_candidate_ids` params, ADR-18, `mustrum chat` CLI REPL,
 > GUI Chat tab; earlier same day E13-1: grounded library-query core service —
@@ -88,7 +91,9 @@ mustrum/
   mcp/               # MCP server adapter (E13-3, ADR-19): read-only
                      #   search_library/get_source/get_idea/list_citations
                      #   for external MCP clients; no LLM call, no core
-                     #   changes — a third driving adapter beside CLI/GUI
+                     #   changes — a third driving adapter beside CLI/GUI.
+                     #   Also every source/idea as a listable MCP resource
+                     #   (E13-4, ADR-20)
   graph/             # self-contained HTML export (vendored Cytoscape.js)
 tests/
   unit/  integration/
@@ -246,6 +251,13 @@ here is a recall problem, not a grounding violation.
   per external client connection (e.g. Claude Desktop spawns `mustrum mcp`
   as a subprocess). Every returned field is a direct readout of a stored
   record; nothing is synthesised, so there is nothing to hallucinate.
+  **MCP resources (E13-4, ADR-20):** the same `create_mcp_server` also
+  registers one `mustrum://sources/{id}` / `mustrum://ideas/{id}` resource
+  per row in the repo *at construction time*, so a client can list and
+  read them directly (e.g. a resource picker), not only via `get_source`/
+  `get_idea`. The list of ids is a startup snapshot (restart to see newly
+  ingested sources — same pattern as ADR-16's settings apply model); each
+  resource's content is still read fresh from the repo every time.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
 - **Brainstorm (E9-2, the only creative path):** library context → LLM
@@ -350,4 +362,5 @@ original-file archive next to the DB, ADR-14 structured LLM outputs, ADR-15
 first-character quote case fold, ADR-16 library settings file next to the DB,
 ADR-17 multi-source grounding with a trusted `found` flag, ADR-18 chat
 history as interpretive context, never evidence, ADR-19 MCP exposes raw
-library data, not a grounded-answer tool.
+library data, not a grounded-answer tool, ADR-20 MCP resources are an
+eager per-item startup snapshot, not a dynamic listing.

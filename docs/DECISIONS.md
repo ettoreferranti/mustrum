@@ -207,3 +207,31 @@ a rejected reply can't poison later turns. Nothing is persisted to the
 database — a chat session lives and dies with the CLI process or the
 running `mustrum ui` server, matching the backlog's "in-memory per session"
 scope.
+
+## ADR-19 — MCP exposes raw library data, not a grounded-answer tool (2026-07-13, accepted)
+E13-3 puts the library behind MCP (Model Context Protocol) so external
+tools — Claude Desktop, or any other MCP client — can read it. Two shapes
+were considered: (a) an `ask_library` tool wrapping `QueryService.ask()`
+(E13-1), so an external client gets a grounded prose answer with citations,
+same as `mustrum chat`; or (b) plain read-only data-access tools
+(`search_library`, `get_source`, `get_idea`, `list_citations`) returning
+raw stored records, with zero LLM calls inside the MCP server. Went with
+(b) — user-confirmed. The point of MCP here is letting an *external*
+assistant read the library directly and do its own reasoning, not routing
+every query back through mustrum's own LLM call; wrapping `ask()` would
+also mean picking a session model (stateless vs. a `ChatSession` per MCP
+connection, mirroring E13-2) for no clear benefit over just handing the
+external assistant the data. Consequence: E13-3 makes **zero core changes**
+and involves **no LLM call anywhere** — `mustrum/mcp/server.py` is a pure
+driving adapter (sibling to `cli/`/`web/`, not under `adapters/`, since it
+depends on core the same direction as the CLI/GUI do) reading straight
+through `StorageRepo`. "Same grounding guarantees as chat/CLI" (per the
+backlog) means every field returned is a direct, faithful readout of a
+stored record — nothing is synthesised, so there is nothing to hallucinate.
+Built on the official `mcp` Python SDK's high-level `FastMCP` API (decorator
+tools, JSON schemas auto-derived from signatures — the same declarative
+shape as `web/api.py`'s FastAPI endpoints), stdio transport (the client
+spawns `mustrum mcp` as a subprocess per session, the standard way local
+MCP servers run — consistent with this being a local-first, single-user
+tool). MCP *resources* (direct source/idea reads, not just tool calls) are
+the noted follow-up (E13-4), not this story.

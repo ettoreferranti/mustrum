@@ -93,6 +93,7 @@
   <button data-tab="graph">Graph</button>
   <button data-tab="brainstorm">Brainstorm</button>
   <button data-tab="contacts">Contacts</button>
+  <button data-tab="settings">Settings</button>
 </nav>
 <main>
 <div class="flash" id="flash" title="click to dismiss" onclick="this.className='flash'"></div>
@@ -197,6 +198,25 @@
     <div class="col"><div class="card"><h3>Contacts</h3><div id="contact-list"></div></div></div>
   </div>
 </section>
+
+<section class="tab" id="tab-settings">
+  <div class="card" style="max-width:640px">
+    <h3>Library settings</h3>
+    <p class="meta" style="color:var(--muted)">Stored in
+      <code id="set-path" style="word-break:break-all"></code> — lives next to
+      the database, so it travels with the library. Changes apply after
+      restarting <code>mustrum ui</code>.</p>
+    <div class="inline"><input type="text" id="set-ollama-url" placeholder="Ollama URL"></div>
+    <div class="inline"><input type="text" id="set-llm-model" placeholder="LLM model"></div>
+    <div class="inline"><input type="text" id="set-embed-model" placeholder="Embedding model"></div>
+    <div class="inline">
+      <input type="text" id="set-max-chars" placeholder="max_source_chars" style="max-width:180px">
+      <input type="text" id="set-num-ctx" placeholder="num_ctx" style="max-width:180px">
+    </div>
+    <div class="inline"><input type="text" id="set-unpaywall" placeholder="Unpaywall e-mail (optional)"></div>
+    <button class="act" onclick="saveSettings()">Save settings</button>
+  </div>
+</section>
 </main>
 
 <script>
@@ -243,6 +263,7 @@ $("nav").addEventListener("click", e => {
   e.target.classList.add("active");
   $("tab-" + e.target.dataset.tab).classList.add("active");
   if (e.target.dataset.tab === "graph") $("graph-frame").src = "/graph";
+  if (e.target.dataset.tab === "settings") loadSettings();
 });
 
 // ---- header stats ----
@@ -707,6 +728,37 @@ async function addContact() {
   });
   $("c-name").value = ""; $("c-aff").value = ""; $("c-notes").value = "";
   await loadContacts(); await loadStats();
+}
+
+// ---- settings ----
+async function loadSettings() {
+  const s = await api("/api/settings");
+  $("set-path").textContent = s.library_config_path;
+  $("set-ollama-url").value = s.ollama_url;
+  $("set-llm-model").value = s.llm_model;
+  $("set-embed-model").value = s.embed_model;
+  $("set-max-chars").value = s.max_source_chars;
+  $("set-num-ctx").value = s.num_ctx;
+  $("set-unpaywall").value = s.unpaywall_email;
+}
+async function saveSettings() {
+  const maxChars = parseInt($("set-max-chars").value, 10);
+  const numCtx = parseInt($("set-num-ctx").value, 10);
+  if (isNaN(maxChars) || isNaN(numCtx)) {
+    flash("max_source_chars and num_ctx must be numbers", true);
+    return;
+  }
+  try {
+    await post("/api/settings", {
+      ollama_url: $("set-ollama-url").value.trim(),
+      llm_model: $("set-llm-model").value.trim(),
+      embed_model: $("set-embed-model").value.trim(),
+      max_source_chars: maxChars,
+      num_ctx: numCtx,
+      unpaywall_email: $("set-unpaywall").value.trim(),
+    });
+  } catch (e) { flash(e.message, true); return; }
+  flash("settings saved — restart `mustrum ui` for changes to take effect");
 }
 
 loadStats(); loadSources(); loadIdeas(); loadContacts(); loadGaps();

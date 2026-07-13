@@ -348,27 +348,60 @@ class TestSummariseAll:
 
 
 class TestConfigCommand:
+    """isolated_db pins MUSTRUM_DB to tmp_path/test.db, so the library
+    config lives at tmp_path/config.toml — a global bootstrap file under
+    test must use a different directory to avoid colliding with it."""
+
     def test_show_defaults(self, tmp_path):
-        out = invoke("config", "--path", str(tmp_path / "absent.toml"))
+        out = invoke("config", "show", "--path", str(tmp_path / "global" / "absent.toml"))
         assert "defaults in effect" in out
         assert "qwen3:30b" in out
         assert "OA PDF lookup disabled" in out
+        assert str(tmp_path / "config.toml") in out  # library config path shown
 
     def test_init_writes_template_then_show_reads_it(self, tmp_path):
-        target = tmp_path / "config.toml"
-        out = invoke("config", "--init", "--path", str(target))
+        target = tmp_path / "global" / "config.toml"
+        out = invoke("config", "init", "--path", str(target))
         assert str(target) in out
         content = target.read_text()
         assert "db_path" in content and "iCloud" in content and "OneDrive" in content
         # activate a value and confirm the effective config reflects it
         target.write_text('llm_model = "llama3.1:8b"\n')
-        assert "llama3.1:8b" in invoke("config", "--path", str(target))
+        assert "llama3.1:8b" in invoke("config", "show", "--path", str(target))
 
     def test_init_refuses_to_overwrite(self, tmp_path):
-        target = tmp_path / "config.toml"
+        target = tmp_path / "global" / "config.toml"
+        target.parent.mkdir()
         target.write_text("# mine")
-        invoke("config", "--init", "--path", str(target), expect_exit=1)
+        invoke("config", "init", "--path", str(target), expect_exit=1)
         assert target.read_text() == "# mine"
+
+    def test_set_writes_library_config_next_to_db(self, tmp_path):
+        out = invoke("config", "set", "--llm-model", "llama3.1:8b", "--num-ctx", "8192")
+        lib_config = tmp_path / "config.toml"
+        assert str(lib_config) in out
+        assert 'llm_model = "llama3.1:8b"' in lib_config.read_text()
+        assert "num_ctx = 8192" in lib_config.read_text()
+        shown = invoke("config", "show", "--path", str(tmp_path / "global" / "absent.toml"))
+        assert "llama3.1:8b" in shown and "8192" in shown
+
+    def test_set_preserves_untouched_fields(self, tmp_path):
+        invoke("config", "set", "--llm-model", "llama3.1:8b")
+        invoke("config", "set", "--num-ctx", "8192")
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_model = "llama3.1:8b"' in content  # first call's value survives
+        assert "num_ctx = 8192" in content
+
+    def test_set_clears_unpaywall_email_with_empty_string(self, tmp_path):
+        invoke("config", "set", "--unpaywall-email", "me@example.org")
+        invoke("config", "set", "--unpaywall-email", "")
+        assert 'unpaywall_email = ""' in (tmp_path / "config.toml").read_text()
+
+    def test_set_requires_at_least_one_option(self):
+        invoke("config", "set", expect_exit=1)
+
+    def test_set_rejects_non_numeric_num_ctx(self):
+        invoke("config", "set", "--num-ctx", "not-a-number", expect_exit=2)
 
 
 class TestSourceAttach:

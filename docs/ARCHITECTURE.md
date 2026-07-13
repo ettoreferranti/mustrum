@@ -2,9 +2,9 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-12 (E3-6: first-character case fold in quote
-> verification, ADR-15; earlier same day E3-5 structured outputs ADR-14 and
-> E1-11 original-file archive ADR-13).
+> Last updated: 2026-07-13 (E12-1: library-local settings file next to the
+> DB + GUI Settings panel, ADR-16; `config` CLI became a show/init/set
+> subgroup).
 
 ## 1. Overview
 
@@ -38,7 +38,11 @@ run *after* any model output and reject ungrounded content.
 
 ## 2. Package layout
 
-Everything below exists; `mustrum/config.py` holds user config (TOML + env).
+Everything below exists; `mustrum/config.py` holds user config: a global
+bootstrap TOML (`~/.config/mustrum/config.toml`, sets `db_path`) layered
+under a library TOML next to the database itself (`Config.library_config_path`,
+everything else — ADR-16), then env vars. `save_library_config` is the one
+writer, used by both `mustrum config set` and the GUI Settings panel.
 
 ```
 mustrum/
@@ -225,4 +229,5 @@ embeddings in phase 1, ADR-5 hexagonal provider interface, ADR-6 mutmut,
 ADR-7 immutable source texts + grounded generation, ADR-8 model defaults,
 ADR-9 abstract→full-text upgrade, ADR-10 quote normalisation, ADR-11
 deletion as a user right, ADR-12 citation-key collision suffixes, ADR-13
-original-file archive next to the DB.
+original-file archive next to the DB, ADR-14 structured LLM outputs, ADR-15
+first-character quote case fold, ADR-16 library settings file next to the DB.

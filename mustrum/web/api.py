@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mustrum.adapters.archive import archive_original, archived_file, delete_archived
-from mustrum.config import Config
+from mustrum.config import Config, save_library_config
 from mustrum.core.models import (
     Contact,
     ContactKind,
@@ -67,12 +67,36 @@ class MetadataPayload(BaseModel):
     year: int | None = None
 
 
+class SettingsPayload(BaseModel):
+    ollama_url: str | None = None
+    llm_model: str | None = None
+    embed_model: str | None = None
+    max_source_chars: int | None = None
+    num_ctx: int | None = None
+    unpaywall_email: str | None = None
+
+
 class ContactPayload(BaseModel):
     name: str
     kind: str = "person"
     affiliation: str = ""
     email: str = ""
     notes: str = ""
+
+
+def _settings_json(config: Config) -> dict[str, Any]:
+    return {
+        "ollama_url": config.ollama_url,
+        "llm_model": config.llm_model,
+        "embed_model": config.embed_model,
+        "max_source_chars": config.max_source_chars,
+        "num_ctx": config.num_ctx,
+        "unpaywall_email": config.unpaywall_email,
+        "db_path": str(config.db_path),
+        "files_dir": str(config.files_dir),
+        "library_config_path": str(config.library_config_path),
+        "library_config_exists": config.library_config_path.is_file(),
+    }
 
 
 def _source_json(repo: StorageRepo, source: Source) -> dict[str, Any]:
@@ -553,6 +577,23 @@ def create_app(
             )
         )
         return {"id": contact.id}
+
+    @app.get("/api/settings")
+    async def get_settings() -> dict[str, Any]:
+        """The settings this *running* process is actually using — may lag
+        a hand-edited file on disk until the next `mustrum ui` start."""
+        return _settings_json(config)
+
+    @app.post("/api/settings")
+    async def update_settings(payload: SettingsPayload) -> dict[str, Any]:
+        """Writes the library config next to the database (ADR-16). Does
+        NOT reconfigure this running process — the Ollama clients and
+        max_source_chars were built at startup; restart to pick this up."""
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            raise HTTPException(400, "nothing to update — give at least one field")
+        updated = save_library_config(config, updates)
+        return {**_settings_json(updated), "restart_required": True}
 
     @app.get("/api/status")
     async def status() -> dict[str, Any]:

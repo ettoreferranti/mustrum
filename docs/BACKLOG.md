@@ -101,7 +101,7 @@ stories at the bottom of the relevant epic.
 | ID | Story | Prio | Status |
 |---|---|---|---|
 | E12-1 | Library-local settings file next to the DB (ADR-16): `config.toml` beside `mustrum.db` holds ollama_url/llm_model/embed_model/max_source_chars/num_ctx/unpaywall_email, so a synced/backed-up library carries its own settings; `mustrum config` split into `show`/`init`/`set` subcommands; GUI Settings tab (`GET`/`POST /api/settings`); save-then-restart-notice apply model — requested to make the whole library portable ([PR #8](https://github.com/ettoreferranti/mustrum/pull/8)) | S | done |
-| E12-2 | Model dropdowns fetched from Ollama: `adapters/ollama.list_models` (`/api/tags`), `GET /api/ollama/models` (never raises — returns `{models: [], error}` so the Settings form stays usable when Ollama is down), GUI LLM/embedding `<select>` dropdowns (current value always kept selectable even if not in the fetched list) with a Refresh button, `mustrum config models` CLI bonus — requested to avoid model-name typos and "which models do I even have" | S | done |
+| E12-2 | Model dropdowns fetched from Ollama: `adapters/ollama.list_models` (`/api/tags`), `GET /api/ollama/models` (never raises — returns `{models: [], error}` so the Settings form stays usable when Ollama is down), GUI LLM/embedding `<select>` dropdowns (current value always kept selectable even if not in the fetched list) with a Refresh button, `mustrum config models` CLI bonus — requested to avoid model-name typos and "which models do I even have" ([PR #9](https://github.com/ettoreferranti/mustrum/pull/9)) | S | done |
 
 ## GUI
 

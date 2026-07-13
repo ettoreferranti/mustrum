@@ -6,7 +6,7 @@ import typing
 import httpx
 import pytest
 
-from mustrum.adapters.ollama import OllamaEmbedder, OllamaError, OllamaLLM
+from mustrum.adapters.ollama import OllamaEmbedder, OllamaError, OllamaLLM, list_models
 
 
 def mock_client(handler) -> httpx.Client:
@@ -174,3 +174,55 @@ class TestContextWindow:
 
         OllamaLLM("m", client=mock_client(handler), num_ctx=32768).generate("p")
         assert seen["payload"]["options"] == {"num_ctx": 32768}
+
+
+class TestListModels:
+    """E12-2: populates the Settings dropdowns / `mustrum config models`."""
+
+    def test_returns_sorted_names(self):
+        def handler(request):
+            assert request.url.path == "/api/tags"
+            return httpx.Response(
+                200, json={"models": [{"name": "qwen3:30b"}, {"name": "nomic-embed-text"}]}
+            )
+
+        assert list_models("http://localhost:11434", client=mock_client(handler)) == [
+            "nomic-embed-text",
+            "qwen3:30b",
+        ]
+
+    def test_falls_back_to_model_field(self):
+        def handler(request):
+            return httpx.Response(200, json={"models": [{"model": "llama3.1:8b"}]})
+
+        assert list_models("http://x", client=mock_client(handler)) == ["llama3.1:8b"]
+
+    def test_empty_models_list(self):
+        def handler(request):
+            return httpx.Response(200, json={"models": []})
+
+        assert list_models("http://x", client=mock_client(handler)) == []
+
+    def test_malformed_response_raises(self):
+        def handler(request):
+            return httpx.Response(200, json={"unexpected": True})
+
+        with pytest.raises(OllamaError, match="malformed"):
+            list_models("http://x", client=mock_client(handler))
+
+    def test_http_error_raises(self):
+        def handler(request):
+            return httpx.Response(500, text="boom")
+
+        with pytest.raises(OllamaError, match="request failed"):
+            list_models("http://x", client=mock_client(handler))
+
+    def test_trailing_slash_in_base_url_handled(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return httpx.Response(200, json={"models": []})
+
+        list_models("http://x/", client=mock_client(handler))
+        assert seen["path"] == "/api/tags"

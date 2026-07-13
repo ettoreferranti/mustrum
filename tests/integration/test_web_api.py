@@ -347,6 +347,44 @@ class TestEditMetadata:
         assert client.post("/api/sources/99/metadata", json={"year": 2020}).status_code == 404
 
 
+class TestOllamaModels:
+    """E12-2: populates the Settings model dropdowns."""
+
+    def test_success_uses_configured_url_by_default(self, client, monkeypatch):
+        seen = {}
+
+        def fake_list_models(url, **kw):
+            seen["url"] = url
+            return ["qwen3:30b", "nomic-embed-text"]
+
+        monkeypatch.setattr("mustrum.adapters.ollama.list_models", fake_list_models)
+        response = client.get("/api/ollama/models")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["models"] == ["qwen3:30b", "nomic-embed-text"]
+        assert data["error"] is None
+        assert seen["url"] == "http://localhost:11434"  # Config() default
+
+    def test_url_query_param_overrides_configured_url(self, client, monkeypatch):
+        seen = {}
+
+        def fake_list_models(url, **kw):
+            seen["url"] = url
+            return []
+
+        monkeypatch.setattr("mustrum.adapters.ollama.list_models", fake_list_models)
+        client.get("/api/ollama/models?url=http://other-host:1234")
+        assert seen["url"] == "http://other-host:1234"
+
+    def test_unreachable_ollama_returns_200_with_error_not_500(self, client):
+        # nothing listens on port 1 — deterministic, host-independent failure
+        response = client.get("/api/ollama/models?url=http://127.0.0.1:1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["models"] == []
+        assert data["error"]
+
+
 class TestSettings:
     """E12-1: library-local settings, editable from the GUI (or `config set`)."""
 

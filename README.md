@@ -138,6 +138,7 @@ the archive for sources ingested before this feature.
 | `mustrum config show` | Show the effective configuration and where each setting comes from |
 | `mustrum config init` | Write a commented global bootstrap template (sets `db_path`) |
 | `mustrum config set --llm-model X --num-ctx N ...` | Edit the library's own settings (model choice, context sizes, Unpaywall e-mail) — same as the UI Settings panel |
+| `mustrum config models` | List models installed on the configured Ollama instance (marks the current `llm_model`/`embed_model`) — same list the UI Settings dropdowns fetch |
 | `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
 | `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |
 
@@ -169,9 +170,13 @@ library folder carries its own settings, not just data) and is edited with
 `mustrum config set --llm-model llama3.1:8b --unpaywall-email you@example.org`
 or the **Settings panel in the UI** (`mustrum ui` → Settings tab) — never by
 hand-editing required, though it's a plain commented TOML file if you prefer
-that. Changes take effect on the next `mustrum` invocation / `mustrum ui`
-restart; a running `mustrum ui` process does not hot-reload them, since its
-Ollama clients are built once at startup.
+that. The UI's model fields are dropdowns, fetched live from the configured
+Ollama instance (`mustrum config models` on the CLI), so you pick from what's
+actually installed instead of typing a name that might have a typo or isn't
+pulled; if Ollama is unreachable the dropdown falls back to just the current
+value and the rest of the form stays usable. Changes take effect on the next
+`mustrum` invocation / `mustrum ui` restart; a running `mustrum ui` process
+does not hot-reload them, since its Ollama clients are built once at startup.
 
 `mustrum config show` prints the effective settings and where each one came
 from (defaults ← global file ← library file ← `MUSTRUM_DB`/`MUSTRUM_OLLAMA_URL`

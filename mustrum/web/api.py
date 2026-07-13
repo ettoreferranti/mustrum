@@ -578,6 +578,20 @@ def create_app(
         )
         return {"id": contact.id}
 
+    @app.get("/api/ollama/models")
+    async def ollama_models(url: str | None = None) -> dict[str, Any]:
+        """Installed models at `url` (defaults to the library's configured
+        ollama_url), for the Settings dropdowns (E12-2). Never raises: the
+        settings form must stay usable when Ollama is unreachable — that's
+        often exactly what the user is here to fix."""
+        from mustrum.adapters.ollama import list_models
+
+        target = url or config.ollama_url
+        try:
+            return {"models": list_models(target), "error": None}
+        except Exception as exc:
+            return {"models": [], "error": str(exc)}
+
     @app.get("/api/settings")
     async def get_settings() -> dict[str, Any]:
         """The settings this *running* process is actually using — may lag

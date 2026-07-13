@@ -171,10 +171,12 @@
     <div class="inline">
       <label>Ideas <input type="text" id="bs-count" value="3" style="width:50px"></label>
       <input type="text" id="bs-focus" placeholder="optional focus, e.g. sustainability">
-      <label><input type="checkbox" id="bs-save"> save (tagged “brainstorm”)</label>
       <button class="act" id="bs-go" onclick="runBrainstorm()">Brainstorm</button>
     </div>
     <div id="bs-results"></div>
+    <div class="inline" id="bs-save-bar" style="display:none">
+      <button class="act" onclick="saveBrainstormSelected()">Save selected (<span id="bs-save-count">0</span>)</button>
+    </div>
   </div>
 </section>
 
@@ -696,22 +698,48 @@ async function loadGaps() {
 }
 
 // ---- brainstorm ----
+let brainstormProposals = [];
 async function runBrainstorm() {
   const btn = $("bs-go");
   await busy(btn, async () => {
     const r = await post("/api/brainstorm", {
       count: parseInt($("bs-count").value) || 3,
       focus: $("bs-focus").value,
-      save: $("bs-save").checked,
     });
-    $("bs-results").innerHTML = r.proposals.map(p => `
-      <div class="card"><b>${esc(p.title)}</b>
-        <p>${esc(p.description)}</p>
-        ${p.inspirations.length ? `<p class="meta">inspired by: ${esc(p.inspirations.join("; "))}</p>` : ""}
-        ${p.saved_id ? `<span class="badge">saved as idea ${p.saved_id}</span>` : ""}
-      </div>`).join("");
-    if (r.proposals.some(p => p.saved_id)) { loadIdeas(); loadStats(); }
+    brainstormProposals = r.proposals;
+    renderBrainstormResults();
   });
+}
+function renderBrainstormResults() {
+  $("bs-results").innerHTML = brainstormProposals.map((p, i) => `
+    <div class="card">
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" class="bs-pick" data-i="${i}" checked onchange="updateBrainstormSaveBar()">
+        <span>
+          <b>${esc(p.title)}</b>
+          <p style="margin:4px 0">${esc(p.description)}</p>
+          ${p.inspirations.length ? `<p class="meta">inspired by: ${esc(p.inspirations.join("; "))}</p>` : ""}
+        </span>
+      </label>
+    </div>`).join("");
+  updateBrainstormSaveBar();
+}
+function updateBrainstormSaveBar() {
+  $("bs-save-bar").style.display = brainstormProposals.length ? "flex" : "none";
+  $("bs-save-count").textContent = document.querySelectorAll(".bs-pick:checked").length;
+}
+async function saveBrainstormSelected() {
+  const picked = [...document.querySelectorAll(".bs-pick:checked")]
+    .map(cb => brainstormProposals[parseInt(cb.dataset.i, 10)]);
+  if (!picked.length) { flash("nothing selected", true); return; }
+  const r = await post("/api/brainstorm/save", {
+    ideas: picked.map(p => ({title: p.title, description: p.description})),
+  });
+  brainstormProposals = [];
+  $("bs-results").innerHTML = "";
+  $("bs-save-bar").style.display = "none";
+  await loadIdeas(); await loadStats();
+  flash(`saved ${r.saved.length} idea(s) (tagged "brainstorm")`);
 }
 
 // ---- contacts ----

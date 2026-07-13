@@ -59,7 +59,15 @@ class SuggestPayload(BaseModel):
 class BrainstormPayload(BaseModel):
     count: int = 3
     focus: str = ""
-    save: bool = False
+
+
+class BrainstormIdeaPayload(BaseModel):
+    title: str
+    description: str
+
+
+class BrainstormSavePayload(BaseModel):
+    ideas: list[BrainstormIdeaPayload]
 
 
 class MetadataPayload(BaseModel):
@@ -521,6 +529,9 @@ def create_app(
 
     @app.post("/api/brainstorm")
     async def brainstorm(payload: BrainstormPayload) -> dict[str, Any]:
+        """Generate proposals only — nothing is stored here (E11-7). The
+        user reviews the list in the GUI and picks which to keep via
+        POST /api/brainstorm/save."""
         service = BrainstormService(repo, llm)
         try:
             proposals = service.propose(count=payload.count, focus=payload.focus)
@@ -528,24 +539,31 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
         except BrainstormFailure as exc:
             raise HTTPException(422, str(exc)) from exc
-        idea_service = IdeaService(repo, embedder)
-        out = []
-        for proposal in proposals:
-            saved_id = None
-            if payload.save:
-                idea = idea_service.create(proposal.title, proposal.description)
-                assert idea.id is not None
-                repo.tag(EntityKind.IDEA, idea.id, BRAINSTORM_TAG)
-                saved_id = idea.id
-            out.append(
+        return {
+            "proposals": [
                 {
-                    "title": proposal.title,
-                    "description": proposal.description,
-                    "inspirations": list(proposal.inspirations),
-                    "saved_id": saved_id,
+                    "title": p.title,
+                    "description": p.description,
+                    "inspirations": list(p.inspirations),
                 }
-            )
-        return {"proposals": out}
+                for p in proposals
+            ]
+        }
+
+    @app.post("/api/brainstorm/save")
+    async def save_brainstorm(payload: BrainstormSavePayload) -> dict[str, Any]:
+        """Save the proposals the user picked after reviewing the generated
+        list (E11-7), tagged 'brainstorm' same as before."""
+        if not payload.ideas:
+            raise HTTPException(400, "no ideas selected")
+        idea_service = IdeaService(repo, embedder)
+        saved = []
+        for item in payload.ideas:
+            idea = idea_service.create(item.title, item.description)
+            assert idea.id is not None
+            repo.tag(EntityKind.IDEA, idea.id, BRAINSTORM_TAG)
+            saved.append({"id": idea.id, "title": idea.title})
+        return {"saved": saved}
 
     @app.get("/api/contacts")
     async def contacts() -> list[dict[str, Any]]:

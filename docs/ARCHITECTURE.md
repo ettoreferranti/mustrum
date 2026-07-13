@@ -183,7 +183,11 @@ strictest test bar in the project (see §7).
   proposals → labelled machine-generated output. Produces no citations; the
   only library references ("inspired by") are titles resolved against real
   records, unresolvable mentions dropped. Nothing stored unless the user
-  saves, and saved ideas carry the permanent 'brainstorm' tag.
+  saves, and saved ideas carry the permanent 'brainstorm' tag. The GUI
+  generates and saves in two separate calls (E11-7: `POST /api/brainstorm`
+  then `POST /api/brainstorm/save`), so the user reviews the whole list
+  before deciding which proposals to keep, rather than committing to save
+  before seeing them.
 - **Backup (NFR-5):** `export` walks the repo into a plain-file bundle
   (canonical JSON + verbatim texts + byte-exact .bib + generated Markdown
   views); `restore` rebuilds an empty DB from it, remapping ids and

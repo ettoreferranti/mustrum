@@ -156,7 +156,9 @@ class TestIdeasAndMatching:
 
 
 class TestBrainstormAndContacts:
-    def test_brainstorm_save_tags(self, client, llm):
+    def test_brainstorm_generates_without_saving(self, client, llm):
+        """E11-7: generation never persists — the user reviews the list and
+        saves selected proposals via a separate call."""
         ingest_note(client)
         llm.queue(
             json.dumps(
@@ -171,15 +173,37 @@ class TestBrainstormAndContacts:
                 }
             )
         )
-        data = client.post("/api/brainstorm", json={"count": 1, "save": True}).json()
+        data = client.post("/api/brainstorm", json={"count": 1}).json()
         proposal = data["proposals"][0]
         assert proposal["inspirations"] == ["Graph networks"]
-        assert proposal["saved_id"] is not None
-        (idea,) = client.get("/api/ideas").json()
-        assert "brainstorm" in idea["tags"]
+        assert "saved_id" not in proposal
+        assert client.get("/api/ideas").json() == []
 
     def test_brainstorm_empty_library_404(self, client):
         assert client.post("/api/brainstorm", json={}).status_code == 404
+
+    def test_brainstorm_save_selected_creates_and_tags_only_those(self, client):
+        """Only the proposals the user picked get created — the third,
+        unpicked one must not appear."""
+        response = client.post(
+            "/api/brainstorm/save",
+            json={
+                "ideas": [
+                    {"title": "Kept idea one", "description": "First kept."},
+                    {"title": "Kept idea two", "description": "Second kept."},
+                ]
+            },
+        )
+        assert response.status_code == 200
+        saved = response.json()["saved"]
+        assert [s["title"] for s in saved] == ["Kept idea one", "Kept idea two"]
+        titles = {i["title"] for i in client.get("/api/ideas").json()}
+        assert titles == {"Kept idea one", "Kept idea two"}
+        for idea in client.get("/api/ideas").json():
+            assert "brainstorm" in idea["tags"]
+
+    def test_brainstorm_save_empty_list_400(self, client):
+        assert client.post("/api/brainstorm/save", json={"ideas": []}).status_code == 400
 
     def test_contacts_roundtrip(self, client):
         response = client.post(

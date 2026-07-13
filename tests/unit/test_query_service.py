@@ -103,6 +103,115 @@ class TestAsk:
         prompt, _ = llm.calls[0]
         assert "renewable energy final unique sentence" not in prompt
 
+    def test_excerpt_budget_shared_across_candidates_not_per_source(self, repo, embedder):
+        # max_source_chars is a TOTAL budget across every candidate in the
+        # prompt, not a per-source cap — otherwise the combined prompt grows
+        # unboundedly with top_k regardless of the configured budget (found
+        # live: it silently blew past num_ctx with several real sources).
+        # both share the literal token "excerpttest" so FTS (no threshold)
+        # retrieves both regardless of embedding relevance, keeping this test
+        # about excerpt-budget division, not retrieval scoring
+        long_a = ("a" * 200 + " ") * 20 + "excerpttest unique tail alpha"
+        long_b = ("b" * 200 + " ") * 20 + "excerpttest unique tail beta"
+        source_a = ingest(repo, embedder, "Paper A", long_a)
+        source_b = ingest(repo, embedder, "Paper B", long_b)
+        reply = json.dumps(
+            {
+                "found": True,
+                "answer": "both",
+                "evidence": [
+                    {"source_id": source_a.id, "quote": "unique tail alpha"},
+                    {"source_id": source_b.id, "quote": "unique tail beta"},
+                ],
+            }
+        )
+        llm = FakeLLMProvider([reply])
+        answer = QueryService(
+            repo, llm, embedder, embedder.model_name, max_source_chars=100, top_k=2
+        ).ask("excerpttest")
+        assert answer.found
+        prompt, _ = llm.calls[0]
+        # each candidate's excerpt is capped at ~50 chars (100 // 2), well
+        # short of the "unique tail" text near the end of each source
+        assert "unique tail alpha" not in prompt
+        assert "unique tail beta" not in prompt
+        assert prompt.count("a" * 50) >= 1
+        assert prompt.count("b" * 50) >= 1
+
+    def test_embed_threshold_filters_weak_candidates(self, repo, embedder):
+        # a weakly (here: zero-)similar source must not become a candidate
+        # via the embedding path — otherwise its real, correctly-attributed
+        # text sitting in the prompt is a standing invitation for the model
+        # to force a match to an unrelated question (found live)
+        strong = repo.add_source(Source(kind=SourceKind.PAPER, title="Strong match"))
+        weak = repo.add_source(Source(kind=SourceKind.PAPER, title="Weak match"))
+        query_vector = embedder.embed(["renewable energy"])[0]
+        zero_idx = next(i for i, v in enumerate(query_vector) if v == 0.0)
+        orthogonal = tuple(1.0 if i == zero_idx else 0.0 for i in range(len(query_vector)))
+        repo.store_embeddings(
+            [
+                Embedding(
+                    entity=EntityKind.SOURCE,
+                    ref_id=strong.id,
+                    chunk_index=0,
+                    model=embedder.model_name,
+                    vector=query_vector,  # cosine == 1.0
+                ),
+                Embedding(
+                    entity=EntityKind.SOURCE,
+                    ref_id=weak.id,
+                    chunk_index=0,
+                    model=embedder.model_name,
+                    vector=orthogonal,  # cosine == 0.0
+                ),
+            ]
+        )
+        service = QueryService(repo, FakeLLMProvider(), embedder, embedder.model_name)
+        candidates = service._candidate_source_ids("renewable energy")
+        assert strong.id in candidates
+        assert weak.id not in candidates
+
+    def test_candidate_ids_capped_exactly_at_top_k(self, repo, embedder):
+        query_vector = embedder.embed(["renewable energy"])[0]
+        sources = [
+            repo.add_source(Source(kind=SourceKind.PAPER, title=f"Match {i}")) for i in range(3)
+        ]
+        repo.store_embeddings(
+            [
+                Embedding(
+                    entity=EntityKind.SOURCE,
+                    ref_id=s.id,
+                    chunk_index=0,
+                    model=embedder.model_name,
+                    vector=query_vector,  # all three tie at cosine == 1.0
+                )
+                for s in sources
+            ]
+        )
+        service = QueryService(repo, FakeLLMProvider(), embedder, embedder.model_name, top_k=2)
+        assert len(service._candidate_source_ids("renewable energy")) == 2
+
+    def test_embed_threshold_is_configurable(self, repo, embedder):
+        weak = repo.add_source(Source(kind=SourceKind.PAPER, title="Weak match"))
+        query_vector = embedder.embed(["renewable energy"])[0]
+        zero_idx = next(i for i, v in enumerate(query_vector) if v == 0.0)
+        orthogonal = tuple(1.0 if i == zero_idx else 0.0 for i in range(len(query_vector)))
+        repo.store_embeddings(
+            [
+                Embedding(
+                    entity=EntityKind.SOURCE,
+                    ref_id=weak.id,
+                    chunk_index=0,
+                    model=embedder.model_name,
+                    vector=orthogonal,  # cosine == 0.0
+                )
+            ]
+        )
+        service = QueryService(
+            repo, FakeLLMProvider(), embedder, embedder.model_name, embed_threshold=0.0
+        )
+        assert weak.id in service._candidate_source_ids("renewable energy")
+
     def test_candidate_without_text_is_skipped_not_short_circuited(self, repo, embedder):
         # a bare/metadata-only candidate (no stored text) ranks first by
         # embedding; it must be skipped, not abort retrieval for the rest

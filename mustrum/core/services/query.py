@@ -24,8 +24,14 @@ _NOT_FOUND = "No sources in your library appear to address this."
 _SYSTEM = (
     "You answer questions about the user's personal research library using "
     "ONLY the excerpts below, each tagged with its source_id. Never use "
-    "outside knowledge and never invent a source. If none of the excerpts "
-    'answer the question, set "found": false. Reply with a single JSON '
+    "outside knowledge and never invent a source. Being included as an "
+    "excerpt does NOT mean a source is relevant — it was only retrieved as a "
+    'candidate. Set "found": true ONLY if at least one excerpt directly and '
+    "substantively answers the question; a tangential, thematically-nearby, "
+    "or merely co-occurring topic is NOT a match. If none of the excerpts "
+    'directly answer the question, set "found": false — this is the correct, '
+    "expected answer whenever the library simply has nothing on the topic, "
+    "and is preferred over a weak or forced match. Reply with a single JSON "
     'object: {"found": <bool>, "answer": "<answer text, or empty if not '
     'found>", "evidence": [{"source_id": <int>, "quote": "<verbatim '
     'quote>"}]}. When found is true, every claim in the answer must be '
@@ -73,6 +79,7 @@ class QueryService:
         max_source_chars: int = 16000,
         attempts: int = 3,
         top_k: int = 8,
+        embed_threshold: float = 0.35,  # matches MatchService's default (ADR-8-adjacent)
     ) -> None:
         self._repo = repo
         self._llm = llm
@@ -82,19 +89,18 @@ class QueryService:
         self._max_source_chars = max_source_chars
         self._attempts = attempts
         self._top_k = top_k
+        self._embed_threshold = embed_threshold
 
     def ask(self, question: str) -> QueryAnswer:
         candidate_ids = self._candidate_source_ids(question)
-        excerpts: dict[int, str] = {}
         full_texts: dict[int, str] = {}
         for source_id in candidate_ids:
             text = self._repo.get_source_text(source_id)
             if text is None:
                 continue
             full_texts[source_id] = text.text
-            excerpts[source_id] = text.text[: self._max_source_chars]
 
-        if not excerpts:
+        if not full_texts:
             return QueryAnswer(
                 question=question,
                 answer=_NOT_FOUND,
@@ -102,6 +108,16 @@ class QueryService:
                 evidence=(),
                 considered_source_ids=(),
             )
+
+        # max_source_chars is a TOTAL excerpt budget shared across every
+        # candidate in this prompt (unlike run_grounded's single-source
+        # callers, where it's a per-source cap) — with multiple candidates,
+        # each gets a share, so the combined prompt stays bounded regardless
+        # of top_k. Found live: with the per-source cap applied to each of
+        # several candidates unscaled, a 6-source library blew past num_ctx
+        # and the model silently lost track of the relevant sources.
+        per_candidate_chars = max(1, self._max_source_chars // len(full_texts))
+        excerpts = {sid: text[:per_candidate_chars] for sid, text in full_texts.items()}
 
         base_prompt = self._build_prompt(question, excerpts)
         try:
@@ -130,7 +146,17 @@ class QueryService:
         )
 
     def _candidate_source_ids(self, question: str) -> list[int]:
-        """Union of FTS and embedding-similarity hits, embedding rank first, capped at top_k."""
+        """Union of FTS and embedding-similarity hits, embedding rank first, capped at top_k.
+
+        The embedding path only contributes sources at or above
+        `embed_threshold` — without a floor, every embedded source in the
+        library becomes a "candidate" regardless of relevance, and a weakly
+        related excerpt sitting in the prompt is a real chance for the model
+        to force a match to it (found live: an unrelated source's genuine,
+        correctly-attributed quote was still miscited as answering a
+        completely unrelated question). FTS hits need no such floor — they
+        already required literal keyword overlap.
+        """
         query_vector = self._embedder.embed([question])[0]
         best_per_source: dict[int, float] = {}
         for emb in self._repo.embeddings_for(EntityKind.SOURCE, self._embed_model):
@@ -139,7 +165,10 @@ class QueryService:
                 best_per_source[emb.ref_id] = score
         ranked_by_embedding = [
             source_id
-            for source_id, _ in sorted(best_per_source.items(), key=lambda kv: kv[1], reverse=True)
+            for source_id, score in sorted(
+                best_per_source.items(), key=lambda kv: kv[1], reverse=True
+            )
+            if score >= self._embed_threshold
         ]
         fts_ids = [
             hit.ref_id

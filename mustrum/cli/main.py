@@ -923,6 +923,17 @@ def ui(
     uvicorn.run(web_app, host="127.0.0.1", port=port, log_level="warning")
 
 
+@app.command("mcp")
+def mcp_cmd() -> None:
+    """Run the MCP server (stdio transport): read-only library access for
+    external MCP clients (e.g. Claude Desktop) — search, source/idea
+    lookups, and BibTeX export. No LLM calls; nothing is synthesised."""
+    from mustrum.mcp.server import create_mcp_server
+
+    ctx = _context()
+    create_mcp_server(ctx.repo).run(transport="stdio")
+
+
 @app.command("brainstorm")
 def brainstorm(
     count: Annotated[int, typer.Option("--count", "-n")] = 3,

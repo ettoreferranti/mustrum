@@ -2,7 +2,10 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (E13-2: conversational grounded chat —
+> Last updated: 2026-07-13 (E13-3: MCP server adapter — `mustrum/mcp/
+> server.py`, `mustrum mcp` (stdio), read-only `search_library`/`get_source`/
+> `get_idea`/`list_citations`, ADR-19, zero core changes, no LLM call;
+> earlier same day E13-2: conversational grounded chat —
 > `core/services/chat.py::ChatSession` + `QueryService.ask()`'s new
 > `history`/`extra_candidate_ids` params, ADR-18, `mustrum chat` CLI REPL,
 > GUI Chat tab; earlier same day E13-1: grounded library-query core service —
@@ -25,6 +28,7 @@ Crossref, PyMuPDF). The CLI is just another adapter driving the core.
                  ┌─────────────────────────────────────────┐
    CLI (typer)   │                 CORE                    │
    GUI (FastAPI) │  domain models · services · verifiers   │
+   MCP (stdio)   │                                         │
   ───────────►   │                                         │
                  │                                         │
   graph HTML ◄── │  ports:                                 │
@@ -77,10 +81,14 @@ mustrum/
                      #   DB, one backup unit with it (ADR-13); shared by CLI+GUI
   cli/               # typer app: ingest, source, idea, match, contact,
                      #   summarise, bib, related-work, audit, graph, search,
-                     #   chat (E13-2 REPL), ui
+                     #   chat (E13-2 REPL), mcp (E13-3 stdio server), ui
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
                      #   single-page frontend (static/index.html); a second
                      #   driving adapter beside the CLI — no logic of its own
+  mcp/               # MCP server adapter (E13-3, ADR-19): read-only
+                     #   search_library/get_source/get_idea/list_citations
+                     #   for external MCP clients; no LLM call, no core
+                     #   changes — a third driving adapter beside CLI/GUI
   graph/             # self-contained HTML export (vendored Cytoscape.js)
 tests/
   unit/  integration/
@@ -228,6 +236,16 @@ here is a recall problem, not a grounding violation.
   step. A turn that fails grounding (`QueryFailure`) is not added to
   history. Nothing is persisted — a session lives and dies with the CLI
   process or the running `mustrum ui` server.
+- **MCP server (E13-3, `mustrum mcp`, ADR-19):** a third driving adapter,
+  read-only, no LLM call. `mustrum/mcp/server.py::create_mcp_server(repo)`
+  registers four tools on the `mcp` SDK's `FastMCP` app — `search_library`
+  (wraps `StorageRepo.search`), `get_source`/`get_idea` (direct record
+  reads, same shape as the GUI's JSON endpoints), `list_citations` (reuses
+  `RelatedWorkService.export_bib`) — each a thin wrapper around a plain,
+  independently unit-tested function. Runs over stdio, one server process
+  per external client connection (e.g. Claude Desktop spawns `mustrum mcp`
+  as a subprocess). Every returned field is a direct readout of a stored
+  record; nothing is synthesised, so there is nothing to hallucinate.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
 - **Brainstorm (E9-2, the only creative path):** library context → LLM
@@ -331,4 +349,5 @@ deletion as a user right, ADR-12 citation-key collision suffixes, ADR-13
 original-file archive next to the DB, ADR-14 structured LLM outputs, ADR-15
 first-character quote case fold, ADR-16 library settings file next to the DB,
 ADR-17 multi-source grounding with a trusted `found` flag, ADR-18 chat
-history as interpretive context, never evidence.
+history as interpretive context, never evidence, ADR-19 MCP exposes raw
+library data, not a grounded-answer tool.

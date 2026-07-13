@@ -235,3 +235,27 @@ spawns `mustrum mcp` as a subprocess per session, the standard way local
 MCP servers run — consistent with this being a local-first, single-user
 tool). MCP *resources* (direct source/idea reads, not just tool calls) are
 the noted follow-up (E13-4), not this story.
+
+## ADR-20 — MCP resources are an eager per-item snapshot at server startup, not a dynamic listing (2026-07-13, accepted)
+E13-4 adds every source and idea in the library as an individually
+listable MCP *resource* (`mustrum://sources/{id}`, `mustrum://ideas/{id}`)
+alongside E13-3's tools, so a client can browse/attach one directly (e.g. a
+resource picker) rather than only reaching it through `get_source`/
+`get_idea`. The `mcp` SDK's `FastMCP.list_resources()` only enumerates
+resources registered at construction time — dynamic per-request listing
+isn't part of the high-level API — so `create_mcp_server(repo)` walks
+`repo.list_sources()`/`list_ideas()` once at startup and registers one
+resource per row. This means the *set* of browsable resources is a
+snapshot: a source ingested after `mustrum mcp` started won't appear until
+the process restarts. Accepted as consistent with the rest of the app's
+existing "changes need a restart to take effect" pattern (ADR-16's
+save-then-restart-notice for settings) rather than a new kind of
+limitation. Each resource's *content*, however, is still computed fresh on
+every read (the registered callback calls `get_source`/`get_idea` live), so
+edits to an already-listed record (a new summary, a renamed title) show up
+immediately — only the list of *which ids exist* is fixed per process.
+Implementation note: the per-item read callback must take zero parameters
+— `FastMCP.resource()` treats any function parameter (even one with a
+default) as turning the registration into a URI *template* instead of a
+concrete resource, which doesn't match a fixed, already-interpolated URI
+like `mustrum://sources/3`; each id is captured via closure instead.

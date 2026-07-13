@@ -9,6 +9,8 @@ here means nothing is ever synthesised, so there is nothing to hallucinate.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -121,5 +123,45 @@ def create_mcp_server(repo: StorageRepo) -> FastMCP:
         """The library's BibTeX, optionally scoped to one idea's confirmed
         source matches."""
         return list_citations(repo, idea_id)
+
+    # -- resources (E13-4, ADR-20): every source/idea as a listable,
+    # individually-addressable MCP resource, so a client can browse/attach
+    # one directly (e.g. a "resource picker" UI) rather than only reaching
+    # it via a tool call. The set of available resources is a snapshot of
+    # the repo at server startup — new sources/ideas added while this
+    # process is running won't appear until it restarts, same
+    # save-then-restart pattern as the rest of the app (ADR-16). Each
+    # resource's *content* is still computed fresh on every read.
+    def _source_resource_reader(source_id: int) -> Callable[[], str]:
+        # a zero-argument closure: `.resource()` treats any function
+        # parameter (even a defaulted one) as turning the registration into
+        # a URI *template*, which this fixed, already-interpolated URI is
+        # not — the id must be captured via closure, not a default arg
+        def read() -> str:
+            return json.dumps(get_source(repo, source_id))
+
+        return read
+
+    def _idea_resource_reader(idea_id: int) -> Callable[[], str]:
+        def read() -> str:
+            return json.dumps(get_idea(repo, idea_id))
+
+        return read
+
+    for source in repo.list_sources():
+        assert source.id is not None
+        app.resource(
+            f"mustrum://sources/{source.id}",
+            name=source.title,
+            mime_type="application/json",
+        )(_source_resource_reader(source.id))
+
+    for idea in repo.list_ideas():
+        assert idea.id is not None
+        app.resource(
+            f"mustrum://ideas/{idea.id}",
+            name=idea.title,
+            mime_type="application/json",
+        )(_idea_resource_reader(idea.id))
 
     return app

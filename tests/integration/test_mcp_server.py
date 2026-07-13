@@ -3,11 +3,14 @@ client/server session (no subprocess/stdio needed) — proves tool
 registration and wiring, mirroring how test_web_api.py/test_cli.py test
 the real adapter rather than just the underlying functions."""
 
+import json
+
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from mustrum.adapters.fake import FakeEmbeddingProvider
 from mustrum.adapters.sqlite.repo import SqliteRepo
+from mustrum.core.services.ideas import IdeaService
 from mustrum.core.services.ingest import IngestService
 from mustrum.mcp.server import create_mcp_server
 
@@ -86,3 +89,45 @@ class TestMcpServer:
             result = await client.call_tool("list_citations", {})
             assert result.isError is False
             assert result.content[0].text.strip() != ""
+
+
+class TestMcpResources:
+    @pytest.mark.anyio
+    async def test_sources_and_ideas_listed_as_resources(self, repo, embedder):
+        source = ingest(repo, embedder, "Solar PV study", SOLAR_TEXT)
+        idea = IdeaService(repo, embedder).create("energy idea", "renewable energy research")
+        server = create_mcp_server(repo)
+        async with create_connected_server_and_client_session(server) as client:
+            await client.initialize()
+            resources = {str(r.uri) for r in (await client.list_resources()).resources}
+            assert resources == {
+                f"mustrum://sources/{source.id}",
+                f"mustrum://ideas/{idea.id}",
+            }
+
+    @pytest.mark.anyio
+    async def test_read_source_resource_matches_get_source_tool(self, repo, embedder):
+        source = ingest(repo, embedder, "Solar PV study", SOLAR_TEXT)
+        server = create_mcp_server(repo)
+        async with create_connected_server_and_client_session(server) as client:
+            await client.initialize()
+            resource_result = await client.read_resource(f"mustrum://sources/{source.id}")
+            tool_result = await client.call_tool("get_source", {"source_id": source.id})
+            assert json.loads(resource_result.contents[0].text) == tool_result.structuredContent
+
+    @pytest.mark.anyio
+    async def test_read_idea_resource_matches_get_idea_tool(self, repo, embedder):
+        idea = IdeaService(repo, embedder).create("energy idea", "renewable energy research")
+        server = create_mcp_server(repo)
+        async with create_connected_server_and_client_session(server) as client:
+            await client.initialize()
+            resource_result = await client.read_resource(f"mustrum://ideas/{idea.id}")
+            tool_result = await client.call_tool("get_idea", {"idea_id": idea.id})
+            assert json.loads(resource_result.contents[0].text) == tool_result.structuredContent
+
+    @pytest.mark.anyio
+    async def test_empty_library_no_resources(self, repo):
+        server = create_mcp_server(repo)
+        async with create_connected_server_and_client_session(server) as client:
+            await client.initialize()
+            assert (await client.list_resources()).resources == []

@@ -15,8 +15,8 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setenv("MUSTRUM_FAKE_PROVIDERS", "1")
 
 
-def invoke(*args, expect_exit=0):
-    result = runner.invoke(app, list(args))
+def invoke(*args, expect_exit=0, input=None):
+    result = runner.invoke(app, list(args), input=input)
     assert result.exit_code == expect_exit, result.output
     return result.output
 
@@ -624,3 +624,37 @@ class TestTitles:
 
     def test_rename_missing_source(self):
         invoke("source", "rename", "9", "X Y", expect_exit=1)
+
+
+class TestChat:
+    def _reply(self, source_id, quote, answer="Grounded chat answer."):
+        import json
+
+        return json.dumps(
+            {
+                "found": True,
+                "answer": answer,
+                "evidence": [{"source_id": source_id, "quote": quote}],
+            }
+        )
+
+    def test_empty_library_no_llm_call_needed(self):
+        # no candidates at all short-circuits before ever calling the LLM,
+        # so this works even with no MUSTRUM_FAKE_LLM_RESPONSE configured
+        out = invoke("chat", input="anything at all\nexit\n")
+        assert "No sources in your library appear to address this." in out
+        assert "bye." in out
+
+    def test_grounded_turn_prints_answer_and_sources(self, note, monkeypatch):
+        invoke("ingest", "file", str(note), "--title", "Graph Networks Survey")
+        monkeypatch.setenv(
+            "MUSTRUM_FAKE_LLM_RESPONSE",
+            self._reply(1, "graph neural networks for molecular property prediction"),
+        )
+        out = invoke("chat", input="graph\nexit\n")
+        assert "Grounded chat answer." in out
+        assert "sources: [1]" in out
+
+    def test_exits_cleanly_on_eof(self):
+        out = invoke("chat", input="")
+        assert "bye." in out

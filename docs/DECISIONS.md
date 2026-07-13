@@ -179,3 +179,31 @@ lives entirely in the calling loop. Evidence for a positive answer is
 own stored text (not a concatenated blob), so a quote can't be attributed
 to the wrong paper. See `core/services/query.py::QueryService` for the
 retrieval layer this grounds against (FTS5 ∪ embedding cosine-similarity).
+
+## ADR-18 — Chat history is interpretive context, never evidence (2026-07-13, accepted)
+E13-2 makes E13-1's single-turn `QueryService.ask()` conversational
+(`mustrum chat` + a GUI Chat tab), which needs follow-ups like "what year
+was that published?" to resolve "that" against the previous turn — but
+every turn still has to pass the same grounding discipline as a bare
+`ask()` call: a claim without a fresh, verified quote is a hard failure
+regardless of what was said earlier in the conversation. The fix is
+additive, not a new grounding path: `QueryService.ask()` gained two
+optional parameters, `history` (prior question/answer-text pairs, rendered
+into the prompt under a section explicitly labelled "context only... NOT
+evidence", reinforced by one added sentence in the system prompt) and
+`extra_candidate_ids` (source ids to also retrieve as candidates,
+independent of this turn's own keyword/embedding ranking). Neither ever
+reaches the `sources` dict `run_grounded_multi` verifies quotes against —
+`core/services/grounded.py` and `core/verify.py` are completely untouched
+by this story. The new `ChatSession` (`core/services/chat.py`) is a thin,
+purely in-memory stateful wrapper: each turn it feeds `history` (the last
+`history_turns` turns, answers truncated to bound growth) and
+`extra_candidate_ids` (only the *immediately previous* turn's actual
+citations — not accumulated across the whole session, so a conversation
+that has moved on to a new topic doesn't keep dragging in stale sources) to
+an otherwise-ordinary `ask()` call, and appends the result to its
+transcript. A turn that raises `QueryFailure` is never added to history, so
+a rejected reply can't poison later turns. Nothing is persisted to the
+database — a chat session lives and dies with the CLI process or the
+running `mustrum ui` server, matching the backlog's "in-memory per session"
+scope.

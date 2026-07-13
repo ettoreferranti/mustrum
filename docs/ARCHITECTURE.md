@@ -2,7 +2,10 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (E13-1: grounded library-query core service —
+> Last updated: 2026-07-13 (E13-2: conversational grounded chat —
+> `core/services/chat.py::ChatSession` + `QueryService.ask()`'s new
+> `history`/`extra_candidate_ids` params, ADR-18, `mustrum chat` CLI REPL,
+> GUI Chat tab; earlier same day E13-1: grounded library-query core service —
 > `core/services/query.py::QueryService` + `core/services/grounded.py::
 > run_grounded_multi`, §5/§6/§7; earlier same day a fresh full-`mustrum/core/`
 > mutmut run — 2084/2262 killed, 92.1%, verify.py still 100%, one genuine
@@ -60,7 +63,9 @@ mustrum/
                      #   brainstorm (quarantined creative mode),
                      #   grounded (shared generate→verify loop; also
                      #   run_grounded_multi, the multi-source variant),
-                     #   query (E13-1: grounded Q&A over the library)
+                     #   query (E13-1: grounded Q&A over the library),
+                     #   chat (E13-2: in-memory multi-turn ChatSession
+                     #   wrapping QueryService, ADR-18)
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
@@ -71,7 +76,8 @@ mustrum/
     archive.py       # original-file archive: visible files/ dir next to the
                      #   DB, one backup unit with it (ADR-13); shared by CLI+GUI
   cli/               # typer app: ingest, source, idea, match, contact,
-                     #   summarise, bib, related-work, audit, graph, search, ui
+                     #   summarise, bib, related-work, audit, graph, search,
+                     #   chat (E13-2 REPL), ui
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
                      #   single-page frontend (static/index.html); a second
                      #   driving adapter beside the CLI — no logic of its own
@@ -205,9 +211,23 @@ here is a recall problem, not a grounding violation.
   circuits to a fixed "nothing found" answer with no LLM call at all. Given
   candidates, one LLM call answers over all of them via
   `run_grounded_multi`; failure to ground raises `QueryFailure`, mirroring
-  `GroundingFailure`/`RationaleFailure`. No CLI/GUI surface yet — E13-2
-  (chat) and E13-3 (MCP adapter) are the driving adapters planned on top of
-  this core service.
+  `GroundingFailure`/`RationaleFailure`. E13-3 (MCP adapter) remains a
+  driving adapter planned on top of this core service.
+- **Chat (E13-2, `ChatSession` — `mustrum chat` REPL + GUI Chat tab,
+  ADR-18):** a thin, purely in-memory stateful wrapper around
+  `QueryService.ask`. Every turn is graded identically to a bare `ask()`
+  call — quotes verified against real stored text, nothing new in
+  `run_grounded_multi`/`verify.py` — but two additive, session-aware inputs
+  make it conversational: `history` (the last `history_turns` turns'
+  question/answer text, rendered into the prompt as clearly-labelled
+  context, truncated per message) lets the model resolve references like
+  "it"/"that paper"; `extra_candidate_ids` seeds *only the immediately
+  previous turn's* actually-cited source ids into retrieval, so a follow-up
+  about the same paper still finds it even when the follow-up's own
+  wording wouldn't. Neither input ever reaches the grounding verification
+  step. A turn that fails grounding (`QueryFailure`) is not added to
+  history. Nothing is persisted — a session lives and dies with the CLI
+  process or the running `mustrum ui` server.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
 - **Brainstorm (E9-2, the only creative path):** library context → LLM
@@ -291,6 +311,12 @@ here is a recall problem, not a grounding violation.
   and its siblings (`parse_json_object`, `describe_failure`,
   `GroundedOutputError.__init__`) were not touched by this story; their
   survivors are pre-existing and unreviewed here.
+  **E13-2 (2026-07-13), scoped run on `services/query.py` (extended) +
+  `services/chat.py` (new):** `query.py` 152/169 killed (89.9%), `chat.py`
+  23/24 killed (95.8%) — both well above the bar. Survivors are entirely
+  the same accepted classes (message text, default-constant tweaks) plus
+  the identical pre-existing `.get(None, ...)`/sort-key-ordering gaps
+  already documented above — no new low-severity gaps introduced.
 - mypy strict on `mustrum/core/`; ruff for lint + format.
 
 ## 8. Decisions
@@ -303,4 +329,6 @@ ADR-7 immutable source texts + grounded generation, ADR-8 model defaults,
 ADR-9 abstract→full-text upgrade, ADR-10 quote normalisation, ADR-11
 deletion as a user right, ADR-12 citation-key collision suffixes, ADR-13
 original-file archive next to the DB, ADR-14 structured LLM outputs, ADR-15
-first-character quote case fold, ADR-16 library settings file next to the DB.
+first-character quote case fold, ADR-16 library settings file next to the DB,
+ADR-17 multi-source grounding with a trusted `found` flag, ADR-18 chat
+history as interpretive context, never evidence.

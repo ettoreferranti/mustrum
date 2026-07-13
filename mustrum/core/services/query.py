@@ -6,6 +6,7 @@ to evidence spanning several documents — see `run_grounded_multi`).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from mustrum.core.models import EntityKind
@@ -21,6 +22,11 @@ from mustrum.core.verify import GroundingResult, GroundingVerifier
 
 _NOT_FOUND = "No sources in your library appear to address this."
 
+# per-message cap on prior answers rendered into the prompt (E13-2): bounds
+# how much a long earlier answer can grow the prompt, independent of the
+# per-source excerpt budget
+_HISTORY_ANSWER_CHARS = 300
+
 _SYSTEM = (
     "You answer questions about the user's personal research library using "
     "ONLY the excerpts below, each tagged with its source_id. Never use "
@@ -31,14 +37,18 @@ _SYSTEM = (
     "or merely co-occurring topic is NOT a match. If none of the excerpts "
     'directly answer the question, set "found": false — this is the correct, '
     "expected answer whenever the library simply has nothing on the topic, "
-    "and is preferred over a weak or forced match. Reply with a single JSON "
-    'object: {"found": <bool>, "answer": "<answer text, or empty if not '
-    'found>", "evidence": [{"source_id": <int>, "quote": "<verbatim '
-    'quote>"}]}. When found is true, every claim in the answer must be '
-    "backed by at least one evidence quote copied EXACTLY, character for "
-    "character, from that source_id's excerpt — do not paraphrase. Only use "
-    "source_id values that appear in the excerpts below. Output the JSON "
-    "object immediately, with no preamble and no reasoning."
+    "and is preferred over a weak or forced match. If a recent conversation "
+    'is included below, use it ONLY to resolve references like "it" or '
+    '"that paper" in the current question — it is never itself evidence; '
+    "every claim in a new answer still needs its own fresh quote. Reply "
+    'with a single JSON object: {"found": <bool>, "answer": "<answer text, '
+    'or empty if not found>", "evidence": [{"source_id": <int>, "quote": '
+    '"<verbatim quote>"}]}. When found is true, every claim in the answer '
+    "must be backed by at least one evidence quote copied EXACTLY, "
+    "character for character, from that source_id's excerpt — do not "
+    "paraphrase. Only use source_id values that appear in the excerpts "
+    "below. Output the JSON object immediately, with no preamble and no "
+    "reasoning."
 )
 
 
@@ -91,8 +101,25 @@ class QueryService:
         self._top_k = top_k
         self._embed_threshold = embed_threshold
 
-    def ask(self, question: str) -> QueryAnswer:
-        candidate_ids = self._candidate_source_ids(question)
+    def ask(
+        self,
+        question: str,
+        *,
+        history: Sequence[tuple[str, str]] = (),
+        extra_candidate_ids: Sequence[int] = (),
+    ) -> QueryAnswer:
+        """Answer one question, optionally in the context of a conversation.
+
+        `history` (prior question, answer_text pairs, oldest first) and
+        `extra_candidate_ids` (e.g. a previous turn's cited sources) are
+        additive, session-aware inputs for multi-turn callers (E13-2's
+        ChatSession) — a bare `ask(question)` call is unaffected and behaves
+        exactly as it did before either parameter existed. Neither one ever
+        reaches `sources` in the `run_grounded_multi` call below: history is
+        prompt text for interpretation only, and extra_candidate_ids only
+        widens which sources are considered, not what counts as evidence.
+        """
+        candidate_ids = self._candidate_source_ids(question, extra_candidate_ids)
         full_texts: dict[int, str] = {}
         for source_id in candidate_ids:
             text = self._repo.get_source_text(source_id)
@@ -119,7 +146,7 @@ class QueryService:
         per_candidate_chars = max(1, self._max_source_chars // len(full_texts))
         excerpts = {sid: text[:per_candidate_chars] for sid, text in full_texts.items()}
 
-        base_prompt = self._build_prompt(question, excerpts)
+        base_prompt = self._build_prompt(question, excerpts, history)
         try:
             # quotes are verified against each source's full stored text, not
             # its excerpt — same discipline as run_grounded's single-source callers
@@ -145,8 +172,16 @@ class QueryService:
             considered_source_ids=tuple(excerpts.keys()),
         )
 
-    def _candidate_source_ids(self, question: str) -> list[int]:
-        """Union of FTS and embedding-similarity hits, embedding rank first, capped at top_k.
+    def _candidate_source_ids(
+        self, question: str, extra_candidate_ids: Sequence[int] = ()
+    ) -> list[int]:
+        """extra_candidate_ids, then embedding, then FTS hits — deduped, capped at top_k.
+
+        extra_candidate_ids (E13-2: a chat session's sticky ids from the
+        previous turn's citations) go first because they're
+        already-established relevant, ahead of this turn's fresh ranking —
+        but they're still subject to the same top_k cap as everything else,
+        so a long-running chat can't grow the prompt unboundedly.
 
         The embedding path only contributes sources at or above
         `embed_threshold` — without a floor, every embedded source in the
@@ -177,15 +212,30 @@ class QueryService:
         ]
 
         candidate_ids: list[int] = []
-        for source_id in ranked_by_embedding + fts_ids:
+        for source_id in list(extra_candidate_ids) + ranked_by_embedding + fts_ids:
             if source_id not in candidate_ids:
                 candidate_ids.append(source_id)
             if len(candidate_ids) >= self._top_k:
                 break
         return candidate_ids
 
-    def _build_prompt(self, question: str, excerpts: dict[int, str]) -> str:
-        parts = [f"Question: {question}", ""]
+    def _build_prompt(
+        self,
+        question: str,
+        excerpts: dict[int, str],
+        history: Sequence[tuple[str, str]] = (),
+    ) -> str:
+        parts: list[str] = []
+        if history:
+            parts.append(
+                "Recent conversation (context only, to resolve references in "
+                "the current question — NOT evidence):"
+            )
+            for prior_question, prior_answer in history:
+                parts.append(f"Q: {prior_question}")
+                parts.append(f"A: {prior_answer[:_HISTORY_ANSWER_CHARS]}")
+            parts.append("")
+        parts += [f"Question: {question}", ""]
         for source_id, text in excerpts.items():
             title = self._repo.get_source(source_id).title
             parts += [f"[source {source_id}] {title}", text, ""]

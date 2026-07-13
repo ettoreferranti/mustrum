@@ -134,6 +134,7 @@ the archive for sources ingested before this feature.
 | `mustrum contact link <id> --idea <id>\|--source <id> --why "..."` | Attach contacts with the reason |
 | `mustrum contact list` | Browse contacts |
 | `mustrum brainstorm` | Creative mode: propose NEW research ideas from your library (`-n`, `--focus`, `--save`). Output is labelled machine-generated, cites nothing, and is quarantined from all citation-bearing features |
+| `mustrum chat` | Interactive grounded Q&A over your library — a REPL; every reply is grounded and cites `[source id]`s the same way `summarise`/`match explain` do. Prior turns are used only to resolve references like "it" in a follow-up, never as evidence (ADR-18). `exit`/`quit`/Ctrl+D to leave |
 | `mustrum ui` | Launch the local web GUI (`--port`, `--no-open`) |
 | `mustrum config show` | Show the effective configuration and where each setting comes from |
 | `mustrum config init` | Write a commented global bootstrap template (sets `db_path`) |

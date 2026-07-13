@@ -497,3 +497,64 @@ class TestRename:
             "/api/ingest/file", files={"file": ("ugly-name.pdf", data, "application/pdf")}
         )
         assert response.json()["source"]["title"] == "Metadata Title Wins"
+
+
+def _found_reply(source_id, quote, answer="Grounded chat answer."):
+    return json.dumps(
+        {"found": True, "answer": answer, "evidence": [{"source_id": source_id, "quote": quote}]}
+    )
+
+
+class TestChat:
+    def test_no_candidates_found_false_no_llm_call(self, client, llm):
+        response = client.post("/api/chat", json={"question": "anything at all"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["found"] is False
+        assert data["evidence"] == []
+        assert data["considered_source_ids"] == []
+        assert llm.calls == []
+
+    def test_grounded_turn_shape(self, client, llm):
+        source_id = ingest_note(client)
+        llm.queue(_found_reply(source_id, "graph neural networks"))
+        response = client.post("/api/chat", json={"question": "graph"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["found"] is True
+        assert data["answer"] == "Grounded chat answer."
+        assert data["evidence"] == [{"source_id": source_id, "quote": "graph neural networks"}]
+        assert data["considered_source_ids"] == [source_id]
+
+    def test_second_turn_carries_history(self, client, llm):
+        source_id = ingest_note(client)
+        llm.queue(
+            _found_reply(source_id, "graph neural networks", "First answer."),
+            _found_reply(source_id, "molecular property prediction", "Second answer."),
+        )
+        client.post("/api/chat", json={"question": "graph"})
+        client.post("/api/chat", json={"question": "molecules"})
+        second_prompt, _ = llm.calls[1]
+        assert "Recent conversation" in second_prompt
+        assert "Q: graph" in second_prompt
+        assert "A: First answer." in second_prompt
+
+    def test_reset_clears_session(self, client, llm):
+        source_id = ingest_note(client)
+        llm.queue(
+            _found_reply(source_id, "graph neural networks"),
+            _found_reply(source_id, "graph neural networks"),
+        )
+        client.post("/api/chat", json={"question": "graph"})
+        assert client.post("/api/chat/reset").json() == {"reset": True}
+        client.post("/api/chat", json={"question": "graph"})
+        second_prompt, _ = llm.calls[1]
+        assert "Recent conversation" not in second_prompt
+
+    def test_ungroundable_reply_returns_422(self, client, llm):
+        source_id = ingest_note(client)
+        # QueryService retries up to its default `attempts` (3); queue a bad
+        # reply for every attempt so the fake provider never runs dry
+        llm.queue(*[_found_reply(source_id, "totally invented span")] * 3)
+        response = client.post("/api/chat", json={"question": "graph"})
+        assert response.status_code == 422

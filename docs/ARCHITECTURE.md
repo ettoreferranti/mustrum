@@ -2,9 +2,11 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (E12-1: library-local settings file next to the
-> DB + GUI Settings panel, ADR-16; `config` CLI became a show/init/set
-> subgroup).
+> Last updated: 2026-07-13 (§7: fresh full-`mustrum/core/` mutmut run —
+> 2084/2262 killed, 92.1%, verify.py still 100%, one genuine test gap found
+> and documented in relatedwork.py; earlier same day E11-7 brainstorm
+> select-to-save, E12-2 Ollama model dropdowns, E12-1 library-local
+> settings file + GUI Settings panel ADR-16, `config` CLI show/init/set).
 
 ## 1. Overview
 
@@ -205,10 +207,15 @@ strictest test bar in the project (see §7).
   target ≥ 80%; for `core/verify.py` every surviving mutant must be reviewed
   and either killed or explicitly justified in the PR/commit. `core/ports.py`
   is excluded (Protocol stubs have no behaviour to mutate).
-- Justified surviving mutants (keep this list current). As of 2026-07-11 the
-  score is 891/972 killed (92%), `core/verify.py` at 100%. The survivors fall
-  into three reviewed classes, accepted as either equivalent or not worth a
-  test:
+- Justified surviving mutants (keep this list current). As of 2026-07-13
+  (full fresh `mustrum/core/` run, not an incremental per-module one — see
+  note below) the score is 2084/2262 killed (92.1%), `core/verify.py` still
+  at 100% (0 survivors). The mutant count roughly doubled since the
+  2026-07-11 baseline (972 total) mainly because E3-5 added two JSON-schema
+  dict literals (`grounded.py`, `brainstorm.py`) — schema literals generate
+  many mutants per line without changing the overall score. The survivors
+  fall into three reviewed classes, accepted as either equivalent or not
+  worth a test:
   1. **Human-readable message text** — mutants that only alter error-message
      or rendered-banner wording/case (`"XX…XX"`, upper/lower variants,
      `ValueError(None)`); behaviour and data are unchanged.
@@ -220,8 +227,24 @@ strictest test bar in the project (see §7).
      case-insensitive), `float("-inf")`→`float("-INF")`, `>`→`>=` on a
      running-max update, `zip(strict=True)`→`strict=False` behind a length
      pre-check, unreachable guard permutations that fail through the same
-     `except` path.
+     `except` path, an exported-but-never-read-back `"id"` field in the
+     backup format (`services/backup.py::_export_contacts` — contacts get
+     fresh auto-IDs on restore, so the field is informational only).
   Anything outside these classes must be killed before merging.
+  **Known gap (2026-07-13, not yet in a justified class):**
+  `services/relatedwork.py::_entry_lines__mutmut_2` survives — mutating
+  the `authors` fallback ternary to an unconditional `authors = None`
+  isn't caught, because no test asserts on the rendered author byline text
+  in the related-work skeleton output (only headings/citation-keys/TODO
+  markers are checked). Low severity — the skeleton is deterministic
+  assembly, not LLM output, so this can't cause an invented citation, only
+  a cosmetic "None." in a draft the user is expected to hand-edit anyway —
+  but it should get a test and be moved into the reviewed classes above
+  rather than sit here indefinitely.
+  Normal story work only reruns mutmut on the specific module it touches
+  (see individual PRs), not the whole `mustrum/core/` tree — the aggregate
+  score above can go stale after any core/ change and doesn't self-correct;
+  don't trust it without a fresh run if it matters for a decision.
 - mypy strict on `mustrum/core/`; ruff for lint + format.
 
 ## 8. Decisions

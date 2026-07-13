@@ -2,9 +2,11 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (§7: fresh full-`mustrum/core/` mutmut run —
-> 2084/2262 killed, 92.1%, verify.py still 100%, one genuine test gap found
-> and documented in relatedwork.py; earlier same day E11-7 brainstorm
+> Last updated: 2026-07-13 (E13-1: grounded library-query core service —
+> `core/services/query.py::QueryService` + `core/services/grounded.py::
+> run_grounded_multi`, §5/§6/§7; earlier same day a fresh full-`mustrum/core/`
+> mutmut run — 2084/2262 killed, 92.1%, verify.py still 100%, one genuine
+> test gap found and documented in relatedwork.py; also E11-7 brainstorm
 > select-to-save, E12-2 Ollama model dropdowns, E12-1 library-local
 > settings file + GUI Settings panel ADR-16, `config` CLI show/init/set).
 
@@ -56,7 +58,9 @@ mustrum/
     services/        # ingest, summarise, match, rationale, relatedwork,
                      #   audit, chunk, backup (plain-file export/restore),
                      #   brainstorm (quarantined creative mode),
-                     #   grounded (shared generate→verify loop)
+                     #   grounded (shared generate→verify loop; also
+                     #   run_grounded_multi, the multi-source variant),
+                     #   query (E13-1: grounded Q&A over the library)
   adapters/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
@@ -158,6 +162,21 @@ The anti-hallucination guarantees live in two small, heavily-tested classes:
 Model output is treated as untrusted input everywhere. These modules have the
 strictest test bar in the project (see §7).
 
+**Multi-source grounding (E13-1, `core/services/grounded.py::run_grounded_multi`):**
+answers spanning several candidate sources need a claim to be attributed to
+the *specific* source it was quoted from, not just found somewhere in a
+concatenated blob (which would let a quote from one paper get miscredited
+to another). Each evidence item carries a `source_id`; verification groups
+evidence by that id and runs the unchanged `GroundingVerifier` once per
+group against that source's own stored text — `verify.py` itself needed no
+changes. A `found: bool` field lets the model honestly say "nothing in your
+library addresses this" without needing evidence (an empty-evidence claim is
+still always a failure per the rule above) — but `found` is a trusted
+*classification* signal only; the model's own prose is discarded whenever
+`found=false` and replaced with a fixed message, so a "not found" verdict
+can never carry unverified freeform text into the answer. A false negative
+here is a recall problem, not a grounding violation.
+
 ## 6. Key flows
 
 - **Ingest PDF:** extract text → dedup check (DOI/arXiv/title-hash) → store
@@ -179,6 +198,16 @@ strictest test bar in the project (see §7).
   path); the output still passes CitationVerifier as defence in depth.
   LLM-assisted grouping/prose is a future enhancement and must keep the
   may-not-add-sources rule.
+- **Library query / "chat with your knowledge" (E13-1, `QueryService.ask`):**
+  retrieve candidate sources by FTS5 keyword search unioned with embedding
+  cosine-similarity (reusing `MatchService`'s `cosine` helper), capped at
+  `top_k`; sources with no stored text are skipped; zero candidates short-
+  circuits to a fixed "nothing found" answer with no LLM call at all. Given
+  candidates, one LLM call answers over all of them via
+  `run_grounded_multi`; failure to ground raises `QueryFailure`, mirroring
+  `GroundingFailure`/`RationaleFailure`. No CLI/GUI surface yet — E13-2
+  (chat) and E13-3 (MCP adapter) are the driving adapters planned on top of
+  this core service.
 - **Graph export:** query entities/links → JSON → inline into HTML template
   with embedded Cytoscape.js → single file, no network.
 - **Brainstorm (E9-2, the only creative path):** library context → LLM
@@ -245,6 +274,23 @@ strictest test bar in the project (see §7).
   (see individual PRs), not the whole `mustrum/core/` tree — the aggregate
   score above can go stale after any core/ change and doesn't self-correct;
   don't trust it without a fresh run if it matters for a decision.
+  **E13-1 (2026-07-13), scoped run on the two new/touched files only**
+  (`services/grounded.py`, `services/query.py`): `run_grounded_multi`
+  153/188 killed (81.4%), `query.py` 133/140 killed (95.0%) — both clear the
+  bar. Surviving mutants are entirely the accepted classes above (message
+  text and default-constant tweaks — the JSON-schema dict literal for
+  `run_grounded_multi` alone accounts for most of its survivors, same
+  pattern as the E3-5 note above) plus one low-severity known gap:
+  `QueryService._candidate_source_ids`'s per-source running-max lookup uses
+  `best_per_source.get(emb.ref_id, ...)` as the comparison key; a mutant
+  swapping that to `.get(None, ...)` only misranks which of a *single*
+  source's own chunks is kept as its best score (never misattributes a
+  score to the wrong source, never affects grounding) — untested because
+  reproducing it needs hand-crafted embedding vectors across multiple
+  chunks of one source, out of proportion to the severity. `run_grounded`
+  and its siblings (`parse_json_object`, `describe_failure`,
+  `GroundedOutputError.__init__`) were not touched by this story; their
+  survivors are pre-existing and unreviewed here.
 - mypy strict on `mustrum/core/`; ruff for lint + format.
 
 ## 8. Decisions

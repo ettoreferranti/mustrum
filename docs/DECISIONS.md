@@ -155,3 +155,27 @@ to avoid elsewhere; the simpler, safer contract here is "persisted now,
 effective on next start". The `config` CLI command became a subgroup
 (`show` / `init` / `set`) to make `set` a natural sibling — a documented,
 tested break from the single-command form.
+
+## ADR-17 — Multi-source grounding for library Q&A: a trusted `found` flag, not an empty-evidence exception (2026-07-13, accepted)
+E13-1 ("chat with your knowledge") needs the model to synthesise one answer
+from several candidate sources' excerpts, and to be able to say "nothing in
+your library addresses this" — but `GroundingVerifier` already treats zero
+evidence quotes as a hard failure whenever a claim is made, and that rule is
+load-bearing (NFR-1): weakening it to let a model skip grounding by simply
+supplying no quotes would open exactly the hole the rigour kernel exists to
+close. Two options were considered: (a) carve an exception into
+`GroundingVerifier` for an explicit "not found" case, or (b) keep the
+verifier untouched and split the model's output into two channels — a
+`found: bool` classification signal, and prose that is only ever trusted
+when `found=true` and grounded. Went with (b): `run_grounded_multi`
+(`core/services/grounded.py`) treats `found` as a trusted classifier (a
+false negative is a recall problem, not a safety violation) but *discards*
+the model's own text whenever `found=false`, substituting a fixed message —
+so an ungrounded claim can never reach the user regardless of how the model
+phrases a "not found" reply. `GroundingVerifier`/`CitationVerifier` needed
+no changes and keep their existing mutation-test bar; the new discipline
+lives entirely in the calling loop. Evidence for a positive answer is
+`{source_id, quote}` pairs, verified per-source-id against that source's
+own stored text (not a concatenated blob), so a quote can't be attributed
+to the wrong paper. See `core/services/query.py::QueryService` for the
+retrieval layer this grounds against (FTS5 ∪ embedding cosine-similarity).

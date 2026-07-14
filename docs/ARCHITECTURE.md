@@ -5,8 +5,10 @@
 > Last updated: 2026-07-14 (E10-1: `AnthropicProvider` —
 > `mustrum/adapters/anthropic.py::AnthropicLLM` implements `LLMProvider`
 > unchanged, config-switchable via new `Config.llm_provider`/
-> `anthropic_model`/`anthropic_max_tokens` + `cli/main.py::_build_llm`,
-> ADR-21, zero core changes; earlier same day E11-2: GUI tag editing (add/remove on sources and
+> `anthropic_model`/`anthropic_max_tokens` + `cli/main.py::_build_llm` on the
+> CLI side and `SettingsPayload`/`POST /api/settings` on the GUI side (same
+> save-then-restart-notice model as ADR-16), ADR-21, zero core changes;
+> earlier same day E11-2: GUI tag editing (add/remove on sources and
 > ideas via existing `tag`/`untag`), contact links (`POST`/`GET
 > /api/{sources|ideas}/{id}/contacts`, GUI counterpart of `mustrum contact
 > link`), and citation audit upload (`POST /api/audit`, GUI counterpart of

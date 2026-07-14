@@ -284,7 +284,9 @@ does not know or care which provider ran. `stop_reason == "max_tokens"`
 raises loudly (mirrors Ollama's `done_reason=length` truncation error) and
 `stop_reason == "refusal"` raises with Anthropic's `stop_details.explanation`
 when present, since a declined generation must never be silently swallowed.
-GUI Settings-panel parity (provider dropdown, like E12-2's Ollama model
-dropdown) is deliberately out of scope here — CLI/config-file switching
-(`mustrum config set --llm-provider anthropic --anthropic-model ...`) is
-sufficient for this story; a GUI story can follow if wanted.
+The GUI Settings panel gets the same fields (`llm_provider` dropdown,
+`anthropic_model`/`anthropic_max_tokens`) via `SettingsPayload`/
+`_settings_json`/`POST /api/settings` — requested immediately after this PR
+opened, so folded into the same story rather than split out; same
+save-then-restart-notice model as ADR-16, same 400-on-invalid-value
+validation as the CLI.

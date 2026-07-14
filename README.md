@@ -186,13 +186,15 @@ value and the rest of the form stays usable. Changes take effect on the next
 does not hot-reload them, since its Ollama clients are built once at startup.
 
 **Switching to Anthropic:** `llm_provider` picks the generation backend —
-`ollama` (default) or `anthropic`:
+`ollama` (default) or `anthropic` — from the CLI:
 
 ```sh
 mustrum config set --llm-provider anthropic --anthropic-model claude-sonnet-5
 ```
 
-Embeddings always stay on Ollama (Anthropic has no embeddings endpoint), so
+or from the **Settings panel in the UI** (an `LLM Provider` dropdown plus
+`Anthropic Model`/`Anthropic Max Tokens` fields, right alongside the Ollama
+ones). Embeddings always stay on Ollama (Anthropic has no embeddings endpoint), so
 `embed_model`/`ollama_url` still matter either way. The Anthropic API key is
 never stored in `config.toml` — set `ANTHROPIC_API_KEY` in your environment,
 or run `ant auth login`; mustrum resolves credentials the same way the

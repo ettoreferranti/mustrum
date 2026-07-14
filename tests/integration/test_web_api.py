@@ -582,6 +582,35 @@ class TestSettings:
         assert 'llm_model = "llama3.1:8b"' in content
         assert "num_ctx = 8192" in content
 
+    def test_get_reflects_anthropic_defaults(self, client):
+        """E10-1: GUI settings surface the provider switch too."""
+        data = client.get("/api/settings").json()
+        assert data["llm_provider"] == "ollama"
+        assert data["anthropic_model"] == "claude-sonnet-5"
+        assert data["anthropic_max_tokens"] == 8192
+
+    def test_switch_to_anthropic_via_settings(self, client, tmp_path):
+        response = client.post(
+            "/api/settings",
+            json={
+                "llm_provider": "anthropic",
+                "anthropic_model": "claude-opus-4-8",
+                "anthropic_max_tokens": 4096,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["llm_provider"] == "anthropic"
+        assert data["anthropic_model"] == "claude-opus-4-8"
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_provider = "anthropic"' in content
+        assert 'anthropic_model = "claude-opus-4-8"' in content
+        assert "anthropic_max_tokens = 4096" in content
+
+    def test_invalid_llm_provider_400(self, client):
+        response = client.post("/api/settings", json={"llm_provider": "openai"})
+        assert response.status_code == 400
+
 
 class TestErrorLogging:
     """E11-5: failed API calls leave a durable record in the ui terminal."""

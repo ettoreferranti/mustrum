@@ -84,9 +84,12 @@ class MetadataPayload(BaseModel):
 
 
 class SettingsPayload(BaseModel):
+    llm_provider: str | None = None
     ollama_url: str | None = None
     llm_model: str | None = None
     embed_model: str | None = None
+    anthropic_model: str | None = None
+    anthropic_max_tokens: int | None = None
     max_source_chars: int | None = None
     num_ctx: int | None = None
     unpaywall_email: str | None = None
@@ -107,9 +110,12 @@ class ContactLinkPayload(BaseModel):
 
 def _settings_json(config: Config) -> dict[str, Any]:
     return {
+        "llm_provider": config.llm_provider,
         "ollama_url": config.ollama_url,
         "llm_model": config.llm_model,
         "embed_model": config.embed_model,
+        "anthropic_model": config.anthropic_model,
+        "anthropic_max_tokens": config.anthropic_max_tokens,
         "max_source_chars": config.max_source_chars,
         "num_ctx": config.num_ctx,
         "unpaywall_email": config.unpaywall_email,
@@ -764,8 +770,15 @@ def create_app(
     @app.post("/api/settings")
     async def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         """Writes the library config next to the database (ADR-16). Does
-        NOT reconfigure this running process — the Ollama clients and
-        max_source_chars were built at startup; restart to pick this up."""
+        NOT reconfigure this running process — the Ollama/Anthropic clients
+        and max_source_chars were built at startup; restart to pick this up."""
+        if payload.llm_provider is not None and payload.llm_provider not in (
+            "ollama",
+            "anthropic",
+        ):
+            raise HTTPException(
+                400, f"llm_provider must be 'ollama' or 'anthropic', got {payload.llm_provider!r}"
+            )
         updates = {k: v for k, v in payload.model_dump().items() if v is not None}
         if not updates:
             raise HTTPException(400, "nothing to update — give at least one field")

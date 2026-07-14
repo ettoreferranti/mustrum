@@ -2,7 +2,14 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-14 (E10-2: provider benchmarking harness —
+> Last updated: 2026-07-14 (E9-3: watch-folder auto-ingest — `mustrum watch
+> <dir>` polls for new PDFs, ingesting one only once its size/mtime are
+> unchanged across two consecutive scans (a download/sync in progress is
+> left alone); resolved files move into `ingested/`/`failed/` inside the
+> watched folder so re-scans stay bounded; `cli/main.py::_ingest_pdf` is
+> shared with the existing `ingest folder` batch command (refactored,
+> behavior unchanged) so the two never drift apart, ADR-23, no core
+> changes; earlier same day E10-2: provider benchmarking harness —
 > `mustrum/benchmark/harness.py::run_benchmark` runs fixed synthetic
 > paper/idea fixtures through any `LLMProvider` via the unmodified
 > `SummariseService`/`RationaleService` grounding loop and reports a pass
@@ -115,7 +122,9 @@ mustrum/
                      #   DB, one backup unit with it (ADR-13); shared by CLI+GUI
   cli/               # typer app: ingest, source, idea, match, contact,
                      #   summarise, bib, related-work, audit, graph, search,
-                     #   chat (E13-2 REPL), mcp (E13-3 stdio server), ui
+                     #   chat (E13-2 REPL), mcp (E13-3 stdio server), ui,
+                     #   watch (E9-3, ADR-23: continuous folder auto-ingest),
+                     #   benchmark (E10-2)
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
                      #   single-page frontend (static/index.html); a second
                      #   driving adapter beside the CLI — no logic of its own
@@ -334,6 +343,21 @@ here is a recall problem, not a grounding violation.
   pass rate per provider; a provider with no usable credentials is
   `unavailable`, never scored 0% — those mean different things and
   conflating them would defeat the point of comparing providers.
+- **Watch-folder auto-ingest (E9-3, ADR-23):** `mustrum watch <dir>` polls
+  the folder every `--interval` seconds (default 30) via
+  `cli/main.py::_scan_once`, a pure function (no sleeping) so it's directly
+  unit-testable. A PDF is ingested only once its `(size, mtime)` is
+  unchanged across two consecutive polls — this is how a file still being
+  downloaded or synced is told apart from a settled one, without any new
+  dependency (no filesystem-event library). `_ingest_pdf` — the same
+  dedup-then-archive pipeline `ingest folder` uses — decides the outcome
+  (`ingested` / `duplicate_conflict` / `duplicate_skipped` / `failed`);
+  resolved files move into an `ingested/` (or `failed/`) subfolder via
+  `_move_unique` (never silently overwrites a same-named file already
+  there), so re-scans stay bounded as the watched folder accumulates
+  papers over weeks/months, and nothing already resolved is ever retried.
+  Runs until Ctrl+C, matching `mustrum ui`/`mustrum mcp`'s foreground,
+  blocking pattern rather than introducing a new daemon/service concept.
 
 ## 7. Testing strategy
 

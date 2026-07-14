@@ -44,6 +44,7 @@ uv run mustrum ingest arxiv 1706.03762    # metadata + BibTeX + full-text PDF
 uv run mustrum ingest doi 10.1371/journal.pcbi.1003285   # + OA PDF via Unpaywall
 uv run mustrum ingest file paper.pdf --title "..." --author "..." --year 2024
 uv run mustrum ingest folder ~/papers -r   # batch-import every PDF; re-run safe
+uv run mustrum watch ~/Downloads           # keep ingesting new PDFs dropped there, until Ctrl+C
 uv run mustrum summarise 1                # grounded, verified summary
 uv run mustrum summarise --all             # every source still lacking one
 
@@ -77,6 +78,7 @@ Every command, grouped by task (`mustrum <command> --help` gives full options).
 | `mustrum ingest doi <doi>` | Metadata + BibTeX via Crossref; PDF via Unpaywall open-access lookup, then publisher links (work on subscription networks) |
 | `mustrum ingest file <path>` | One PDF or text/Markdown file (`--title`, `--author`, `--year`, `--kind`) |
 | `mustrum ingest folder <dir>` | Every PDF in a folder (`-r` recursive); re-run safe |
+| `mustrum watch <dir> [--interval N] [-r]` | Continuously ingest new PDFs dropped into a folder (E9-3) — runs until Ctrl+C; a file is ingested once its size/mtime are unchanged across two scans (so a download/sync in progress is left alone), then moved into `ingested/` (or `failed/` if it doesn't extract) so re-scans stay bounded |
 
 All accept `--on-duplicate fail|skip|merge`; `merge` enriches an existing
 record instead of duplicating. `--no-pdf` skips full-text download.
@@ -215,9 +217,9 @@ machine — nothing personal is ever part of this repository, enforced by
 ## Status
 
 Phases 0–2 complete (MVP, GUI, configuration, chat & MCP), plus the
-Anthropic provider and benchmarking harness (E10-1/E10-2) — see
-[docs/BACKLOG.md](docs/BACKLOG.md) for the full, current story-by-story
-status. Remaining: watch-folder auto-ingest and Zotero/contact import. See:
+Anthropic provider, benchmarking harness, and watch-folder auto-ingest
+(E10-1/E10-2/E9-3) — see [docs/BACKLOG.md](docs/BACKLOG.md) for the full,
+current story-by-story status. Remaining: Zotero and contact import. See:
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — what it must do
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it is built

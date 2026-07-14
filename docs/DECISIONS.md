@@ -348,3 +348,43 @@ out of the box with zero setup, serving as the harness's own self-check
 (and per the backlog title's explicit inclusion of `fake` alongside the
 real providers) offline in the default test suite, independent of whether
 Ollama is running or an Anthropic key is configured.
+
+## ADR-23 — Watch-folder auto-ingest: polling + size/mtime settling, no new dependency (2026-07-14, accepted)
+
+Resolves E9-3. `mustrum watch <dir>` polls on a plain `--interval`-second
+loop rather than a filesystem-event library (e.g. `watchdog`) — no new
+dependency, no platform-specific event-backend quirks, and this is a
+low-frequency personal workflow (papers don't arrive every few
+milliseconds) where event-driven latency buys nothing. A PDF is ingested
+only once its `(size, mtime)` is identical across two consecutive polls —
+the simplest reliable way to tell "still being downloaded/synced" apart
+from "settled," without inspecting file locks or partial-write markers.
+The trade-off: a file present and already stable when `watch` starts is
+still ingested one interval late (the first poll never fast-paths on a
+file it has no prior stamp for) — accepted as a negligible, well-documented
+delay in exchange for the technique's simplicity.
+
+`_ingest_pdf` — factored out of the existing `ingest folder` batch
+command with behavior otherwise unchanged (verified by the pre-existing
+`TestIngestFolder` suite passing unmodified) — is now shared by both, so
+the one-shot and continuous ingest paths can't silently drift apart.
+`_scan_once` is a pure function (repo/service/paths in, printed output +
+next poll's seen-state out, no sleeping) specifically so the scan →
+settle → resolve → move lifecycle is unit-testable by calling it twice in
+a row, with no real waiting and no Typer involved.
+
+Resolved files (ingested or already-known) move into an `ingested/`
+subfolder; files that fail to extract move into `failed/` — both via
+`_move_unique`, which appends a numeric suffix rather than ever silently
+overwriting a same-named file already moved there. Without this move
+step, a long-running watch would re-glob and re-extract every
+already-resolved PDF on every single poll forever, an unbounded and
+wholly avoidable cost as the folder accumulates papers over weeks or
+months; it also gives the user a plain visual record of what's been
+processed, with no new database state to reason about.
+
+`mustrum watch` runs in the foreground until Ctrl+C, the same blocking
+pattern as `mustrum ui`/`mustrum mcp` — no new daemon, service-manager, or
+background-process concept introduced. GUI integration (a "watch" toggle
+in the UI) is out of scope here, matching how E10-1's CLI-first scope was
+only extended to the GUI on request.

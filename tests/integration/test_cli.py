@@ -684,6 +684,36 @@ class TestChat:
         assert "bye." in out
 
 
+class TestWatch:
+    """E9-3: `mustrum watch` runs `_scan_once` in a loop until Ctrl+C —
+    fake_sleep raises KeyboardInterrupt in place of a real interval wait,
+    so the test exercises the real command without actually blocking."""
+
+    def test_missing_directory(self):
+        invoke("watch", "/nonexistent/dir", expect_exit=1)
+
+    def test_scans_until_interrupted_and_exits_cleanly(self, tmp_path, monkeypatch):
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        make_pdf(folder / "paper.pdf", "graph networks for molecules")
+
+        calls = {"n": 0}
+
+        def fake_sleep(seconds):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        out = invoke("watch", str(folder), "--interval", "0")
+
+        assert "watching" in out
+        assert "stopped watching" in out
+        # two polls ran before the interrupt: the file settled and was ingested
+        assert "ingested [1] paper" in out
+        assert (folder / "ingested" / "paper.pdf").exists()
+
+
 class TestBenchmark:
     """E10-2: provider benchmarking harness — offline via `fake`, no Ollama
     or Anthropic credentials required for these cases."""

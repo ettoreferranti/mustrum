@@ -342,6 +342,138 @@ class TestTags:
         assert client.post(f"/api/sources/{source_id}/tags", json={"text": "  "}).status_code == 400
         assert client.post("/api/sources/99/tags", json={"text": "x"}).status_code == 404
 
+    def test_remove_tag_roundtrip(self, client):
+        """E11-2: source tags can be edited, not just added."""
+        source_id = ingest_note(client)
+        client.post(f"/api/sources/{source_id}/tags", json={"text": "gnn"})
+        response = client.delete(f"/api/sources/{source_id}/tags/gnn")
+        assert response.status_code == 200
+        assert client.get(f"/api/sources/{source_id}").json()["tags"] == []
+
+    def test_remove_tag_missing_source_404(self, client):
+        assert client.delete("/api/sources/99/tags/gnn").status_code == 404
+
+    def test_remove_unknown_tag_is_a_noop(self, client):
+        """untag() has no notion of 'not tagged' — removing a tag that was
+        never applied just leaves the (empty) set unchanged."""
+        source_id = ingest_note(client)
+        assert client.delete(f"/api/sources/{source_id}/tags/never-applied").status_code == 200
+
+
+class TestIdeaTags:
+    """E11-2: idea tags get the same add/remove treatment as source tags."""
+
+    def _idea(self, client):
+        return client.post("/api/ideas", json={"title": "i", "text": "t"}).json()["id"]
+
+    def test_add_and_remove_tag_roundtrip(self, client):
+        idea_id = self._idea(client)
+        response = client.post(f"/api/ideas/{idea_id}/tags", json={"text": " grant "})
+        assert response.status_code == 200
+        (idea,) = [i for i in client.get("/api/ideas").json() if i["id"] == idea_id]
+        assert idea["tags"] == ["grant"]
+        assert client.delete(f"/api/ideas/{idea_id}/tags/grant").status_code == 200
+        (idea,) = [i for i in client.get("/api/ideas").json() if i["id"] == idea_id]
+        assert idea["tags"] == []
+
+    def test_empty_tag_400_and_missing_idea_404(self, client):
+        idea_id = self._idea(client)
+        assert client.post(f"/api/ideas/{idea_id}/tags", json={"text": "  "}).status_code == 400
+        assert client.post("/api/ideas/99/tags", json={"text": "x"}).status_code == 404
+        assert client.delete("/api/ideas/99/tags/x").status_code == 404
+
+
+class TestContactLinks:
+    """E11-2: GUI counterpart of `mustrum contact link` (FR-7.2)."""
+
+    def _contact(self, client, name="Prof X"):
+        return client.post("/api/contacts", json={"name": name, "kind": "person"}).json()["id"]
+
+    def _idea(self, client):
+        return client.post("/api/ideas", json={"title": "i", "text": "t"}).json()["id"]
+
+    def test_link_source_roundtrip(self, client):
+        source_id = ingest_note(client)
+        contact_id = self._contact(client)
+        response = client.post(
+            f"/api/sources/{source_id}/contacts",
+            json={"contact_id": contact_id, "why": "co-author"},
+        )
+        assert response.status_code == 200
+        (link,) = client.get(f"/api/sources/{source_id}/contacts").json()
+        assert link["name"] == "Prof X"
+        assert link["why"] == "co-author"
+
+    def test_link_idea_roundtrip(self, client):
+        idea_id = self._idea(client)
+        contact_id = self._contact(client)
+        response = client.post(
+            f"/api/ideas/{idea_id}/contacts",
+            json={"contact_id": contact_id, "why": "suggested this direction"},
+        )
+        assert response.status_code == 200
+        (link,) = client.get(f"/api/ideas/{idea_id}/contacts").json()
+        assert link["name"] == "Prof X"
+        assert link["why"] == "suggested this direction"
+
+    def test_link_empty_why_400(self, client):
+        source_id = ingest_note(client)
+        contact_id = self._contact(client)
+        response = client.post(
+            f"/api/sources/{source_id}/contacts", json={"contact_id": contact_id, "why": "  "}
+        )
+        assert response.status_code == 400
+
+    def test_link_missing_contact_404(self, client):
+        source_id = ingest_note(client)
+        response = client.post(
+            f"/api/sources/{source_id}/contacts", json={"contact_id": 99, "why": "x"}
+        )
+        assert response.status_code == 404
+
+    def test_link_missing_source_or_idea_404(self, client):
+        contact_id = self._contact(client)
+        assert (
+            client.post(
+                "/api/sources/99/contacts", json={"contact_id": contact_id, "why": "x"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/api/ideas/99/contacts", json={"contact_id": contact_id, "why": "x"}
+            ).status_code
+            == 404
+        )
+        assert client.get("/api/sources/99/contacts").status_code == 404
+        assert client.get("/api/ideas/99/contacts").status_code == 404
+
+
+class TestAudit:
+    """E11-2: GUI counterpart of `mustrum audit` (FR-5.5)."""
+
+    def test_audit_upload_all_known(self, client):
+        source_id = ingest_note(client)
+        key = client.get(f"/api/sources/{source_id}").json()["citation_key"]
+        assert key is None  # not derived until something asks for BibTeX
+        client.get("/api/bib")  # derives + stores a citation key for every source
+        key = client.get(f"/api/sources/{source_id}").json()["citation_key"]
+        draft = f"See \\cite{{{key}}} for details.".encode()
+        response = client.post("/api/audit", files={"file": ("draft.tex", draft, "text/plain")})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["used_keys"] == [key]
+        assert data["unknown_keys"] == []
+
+    def test_audit_upload_unknown_key(self, client):
+        draft = b"See [@nonexistent2024] for details."
+        response = client.post("/api/audit", files={"file": ("draft.md", draft, "text/plain")})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is False
+        assert data["unknown_keys"] == ["nonexistent2024"]
+
 
 class TestEditMetadata:
     """E8-6: GUI counterpart of `source edit` for DOI-less venues."""

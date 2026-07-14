@@ -2,7 +2,13 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-13 (E13-4: MCP resources — every source/idea listed
+> Last updated: 2026-07-14 (E11-2: GUI tag editing (add/remove on sources and
+> ideas via existing `tag`/`untag`), contact links (`POST`/`GET
+> /api/{sources|ideas}/{id}/contacts`, GUI counterpart of `mustrum contact
+> link`), and citation audit upload (`POST /api/audit`, GUI counterpart of
+> `mustrum audit`) — no core changes, all three reuse existing services/repo
+> methods through new thin API endpoints; earlier 2026-07-13: E13-4: MCP
+> resources — every source/idea listed
 > as an individually-readable `mustrum://sources|ideas/{id}` resource
 > alongside E13-3's tools, ADR-20; earlier same day E13-3: MCP server
 > adapter — `mustrum/mcp/server.py`, `mustrum mcp` (stdio), read-only
@@ -269,6 +275,18 @@ here is a recall problem, not a grounding violation.
   then `POST /api/brainstorm/save`), so the user reviews the whole list
   before deciding which proposals to keep, rather than committing to save
   before seeing them.
+- **GUI tags/contact-links/audit (E11-2):** three GUI-only additions, all
+  thin adapters over existing core surface — no new core code. Tag editing
+  adds `POST`/`DELETE /api/ideas/{id}/tags[/{tag}]` (ideas previously had no
+  GUI tagging at all) alongside the existing source-tag endpoints (E11-6),
+  both backed by `StorageRepo.tag`/`untag`. Contact links add
+  `POST`/`GET /api/sources/{id}/contacts` and the idea equivalent — the GUI
+  counterpart of `mustrum contact link`/FR-7.2 — validating the contact and
+  idea/source exist (404) before `StorageRepo.add_contact_link`; there is no
+  unlink endpoint since the schema has no per-link id to target (matches the
+  CLI). Audit upload adds `POST /api/audit` (multipart file), the GUI
+  counterpart of `mustrum audit`/FR-5.5, running the uploaded draft's text
+  through the existing `AuditService.audit_text`.
 - **Backup (NFR-5):** `export` walks the repo into a plain-file bundle
   (canonical JSON + verbatim texts + byte-exact .bib + generated Markdown
   views); `restore` rebuilds an empty DB from it, remapping ids and

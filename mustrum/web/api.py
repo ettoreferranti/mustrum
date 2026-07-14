@@ -21,6 +21,7 @@ from mustrum.config import Config, save_library_config
 from mustrum.core.models import (
     Contact,
     ContactKind,
+    ContactLink,
     EntityKind,
     FieldOrigin,
     MatchStatus,
@@ -29,6 +30,7 @@ from mustrum.core.models import (
     SourceKind,
 )
 from mustrum.core.ports import EmbeddingProvider, LLMProvider, StorageRepo
+from mustrum.core.services.audit import AuditService
 from mustrum.core.services.brainstorm import BRAINSTORM_TAG, BrainstormFailure, BrainstormService
 from mustrum.core.services.chat import ChatSession
 from mustrum.core.services.ideas import IdeaService
@@ -98,6 +100,11 @@ class ContactPayload(BaseModel):
     notes: str = ""
 
 
+class ContactLinkPayload(BaseModel):
+    contact_id: int
+    why: str
+
+
 def _settings_json(config: Config) -> dict[str, Any]:
     return {
         "ollama_url": config.ollama_url,
@@ -143,6 +150,17 @@ def _source_json(repo: StorageRepo, source: Source) -> dict[str, Any]:
             if summary
             else None
         ),
+    }
+
+
+def _contact_json(contact: Contact) -> dict[str, Any]:
+    return {
+        "id": contact.id,
+        "name": contact.name,
+        "kind": contact.kind.value,
+        "affiliation": contact.affiliation,
+        "email": contact.email,
+        "notes": contact.notes,
     }
 
 
@@ -314,6 +332,31 @@ def create_app(
         repo.tag(EntityKind.SOURCE, source_id, tag)
         return {"ok": True}
 
+    @app.delete("/api/sources/{source_id}/tags/{tag}")
+    async def remove_source_tag(source_id: int, tag: str) -> dict[str, Any]:
+        try:
+            repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        repo.untag(EntityKind.SOURCE, source_id, tag)
+        return {"ok": True}
+
+    @app.post("/api/sources/{source_id}/contacts")
+    async def link_source_contact(source_id: int, payload: ContactLinkPayload) -> dict[str, Any]:
+        try:
+            repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _add_contact_link(source_id=source_id, idea_id=None, payload=payload)
+
+    @app.get("/api/sources/{source_id}/contacts")
+    async def source_contacts(source_id: int) -> list[dict[str, Any]]:
+        try:
+            repo.get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _contact_links_json(repo.list_contact_links(source_id=source_id))
+
     @app.post("/api/sources/{source_id}/enrich")
     async def enrich(source_id: int) -> dict[str, Any]:
         from mustrum.adapters.enrich import enrich_source
@@ -460,6 +503,43 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
         return {"ok": True}
 
+    @app.post("/api/ideas/{idea_id}/tags")
+    async def add_idea_tag(idea_id: int, payload: TextPayload) -> dict[str, Any]:
+        tag = payload.text.strip()
+        if not tag:
+            raise HTTPException(400, "tag must not be empty")
+        try:
+            repo.get_idea(idea_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        repo.tag(EntityKind.IDEA, idea_id, tag)
+        return {"ok": True}
+
+    @app.delete("/api/ideas/{idea_id}/tags/{tag}")
+    async def remove_idea_tag(idea_id: int, tag: str) -> dict[str, Any]:
+        try:
+            repo.get_idea(idea_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        repo.untag(EntityKind.IDEA, idea_id, tag)
+        return {"ok": True}
+
+    @app.post("/api/ideas/{idea_id}/contacts")
+    async def link_idea_contact(idea_id: int, payload: ContactLinkPayload) -> dict[str, Any]:
+        try:
+            repo.get_idea(idea_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _add_contact_link(source_id=None, idea_id=idea_id, payload=payload)
+
+    @app.get("/api/ideas/{idea_id}/contacts")
+    async def idea_contacts(idea_id: int) -> list[dict[str, Any]]:
+        try:
+            repo.get_idea(idea_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _contact_links_json(repo.list_contact_links(idea_id=idea_id))
+
     # -- matching -------------------------------------------------------------------
 
     def _match_json(match: Any) -> dict[str, Any]:
@@ -523,6 +603,20 @@ def create_app(
             return {"text": RelatedWorkService(repo).export_bib(idea_id)}
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/audit")
+    async def audit_draft(file: UploadFile) -> dict[str, Any]:
+        """GUI counterpart of `mustrum audit` (FR-5.5): upload a draft
+        .tex/.md and check every citation key against the library."""
+        data = await file.read()
+        text = data.decode("utf-8", errors="replace")
+        report = AuditService(repo).audit_text(text)
+        return {
+            "ok": report.ok,
+            "used_keys": list(report.used_keys),
+            "unknown_keys": list(report.unknown_keys),
+            "known_keys": list(report.known_keys),
+        }
 
     @app.get("/api/search")
     async def search(q: str) -> list[dict[str, Any]]:
@@ -602,19 +696,33 @@ def create_app(
         chat_session.reset()
         return {"reset": True}
 
+    def _contact_links_json(links: list[Any]) -> list[dict[str, Any]]:
+        return [
+            {**_contact_json(repo.get_contact(link.contact_id)), "why": link.why} for link in links
+        ]
+
+    def _add_contact_link(
+        *, source_id: int | None, idea_id: int | None, payload: ContactLinkPayload
+    ) -> dict[str, Any]:
+        """Shared by the source- and idea-contact endpoints (GUI counterpart
+        of `mustrum contact link`, FR-7.2)."""
+        why = payload.why.strip()
+        if not why:
+            raise HTTPException(400, "why must not be empty")
+        try:
+            repo.get_contact(payload.contact_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        repo.add_contact_link(
+            ContactLink(
+                contact_id=payload.contact_id, why=why, idea_id=idea_id, source_id=source_id
+            )
+        )
+        return {"ok": True}
+
     @app.get("/api/contacts")
     async def contacts() -> list[dict[str, Any]]:
-        return [
-            {
-                "id": c.id,
-                "name": c.name,
-                "kind": c.kind.value,
-                "affiliation": c.affiliation,
-                "email": c.email,
-                "notes": c.notes,
-            }
-            for c in repo.list_contacts()
-        ]
+        return [_contact_json(c) for c in repo.list_contacts()]
 
     @app.post("/api/contacts")
     async def add_contact(payload: ContactPayload) -> dict[str, Any]:

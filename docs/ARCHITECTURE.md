@@ -2,7 +2,11 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-14 (E11-2: GUI tag editing (add/remove on sources and
+> Last updated: 2026-07-14 (E10-1: `AnthropicProvider` —
+> `mustrum/adapters/anthropic.py::AnthropicLLM` implements `LLMProvider`
+> unchanged, config-switchable via new `Config.llm_provider`/
+> `anthropic_model`/`anthropic_max_tokens` + `cli/main.py::_build_llm`,
+> ADR-21, zero core changes; earlier same day E11-2: GUI tag editing (add/remove on sources and
 > ideas via existing `tag`/`untag`), contact links (`POST`/`GET
 > /api/{sources|ideas}/{id}/contacts`, GUI counterpart of `mustrum contact
 > link`), and citation audit upload (`POST /api/audit`, GUI counterpart of
@@ -83,6 +87,10 @@ mustrum/
     sqlite/          # StorageRepo impl: schema.py (migrations), repo.py
     fake.py          # deterministic fake providers for tests
     ollama.py        # OllamaLLM + OllamaEmbedder via Ollama HTTP API
+    anthropic.py     # AnthropicLLM (E10-1, ADR-21): LLMProvider over the
+                     #   Anthropic Messages API, config-switchable via
+                     #   Config.llm_provider; no EmbeddingProvider (Anthropic
+                     #   has none) — embeddings stay on Ollama either way
     arxiv.py         # MetadataFetcher for arXiv IDs (Atom API + /bibtex)
     crossref.py      # MetadataFetcher for DOIs (api.crossref.org + doi.org)
     pdf.py           # TextExtractors: PyMuPDF for PDFs, passthrough for text
@@ -150,11 +158,14 @@ an adapter.
 - `LLMProvider.generate(prompt, system=, json_schema=) -> str` — text
   generation; an optional JSON schema requests structured output (ADR-14):
   the provider constrains decoding so the reply is syntactically valid by
-  construction (Ollama: `format`; Anthropic later: tool/output schema).
+  construction (Ollama: `format`; Anthropic: `output_config.format`).
   Syntax only — content still goes through the verifiers. Implementations:
   `OllamaLLM` (phase 1; raises loudly on `done_reason=length` truncation),
-  `AnthropicProvider` (phase 3), `FakeLLMProvider` (tests). The interface is
-  deliberately minimal so swapping providers is config-only.
+  `AnthropicLLM` (E10-1, ADR-21; raises loudly on `stop_reason=max_tokens`/
+  `refusal`), `FakeLLMProvider` (tests). `Config.llm_provider` picks between
+  the two live implementations (`cli/main.py::_build_llm`) — the interface
+  is deliberately minimal so swapping providers is config-only, no core
+  changes.
 - `EmbeddingProvider.embed(texts) -> vectors` — Ollama (`nomic-embed-text`)
   first; same swap story.
 - `StorageRepo` — persistence for all entities + FTS queries. SQLite adapter.

@@ -3,11 +3,12 @@
 A local-first personal knowledge repository for academic research.
 
 Feed it papers (PDF, arXiv ID, DOI, plain text) and your research ideas; it
-stores everything in a local SQLite database, summarises sources with a local
-LLM (Ollama), matches ideas to supporting literature, and generates
-citation-perfect building blocks for new papers: BibTeX exports, related-work
-skeletons (Markdown/LaTeX), and an interactive graph of ideas, sources, and
-contacts.
+stores everything in a local SQLite database, summarises sources with an LLM
+(local via Ollama by default, or Anthropic's API — config-switchable, see
+[Configuration](#configuration--syncing-icloud--onedrive)), matches ideas to
+supporting literature, and generates citation-perfect building blocks for new
+papers: BibTeX exports, related-work skeletons (Markdown/LaTeX), and an
+interactive graph of ideas, sources, and contacts.
 
 **Core guarantee:** Mustrum never invents a citation. Every claim it makes
 about a source is mechanically verified against stored, verbatim text before
@@ -29,7 +30,10 @@ your machine). The GUI is a thin adapter over the same services as the CLI:
 everything it does has a CLI equivalent below.
 
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and
-[Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled.
+[Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled
+(embeddings always use Ollama). Generation can instead run on Anthropic's API
+(`mustrum config set --llm-provider anthropic`, `ANTHROPIC_API_KEY` in your
+environment) — see [Configuration](#configuration--syncing-icloud--onedrive).
 
 ```sh
 uv sync                                   # install
@@ -140,7 +144,7 @@ the archive for sources ingested before this feature.
 | `mustrum ui` | Launch the local web GUI (`--port`, `--no-open`) |
 | `mustrum config show` | Show the effective configuration and where each setting comes from |
 | `mustrum config init` | Write a commented global bootstrap template (sets `db_path`) |
-| `mustrum config set --llm-model X --num-ctx N ...` | Edit the library's own settings (model choice, context sizes, Unpaywall e-mail) — same as the UI Settings panel |
+| `mustrum config set --llm-model X --num-ctx N ...` | Edit the library's own settings (model choice, context sizes, Unpaywall e-mail, `--llm-provider ollama\|anthropic` + `--anthropic-model`/`--anthropic-max-tokens`) — same as the UI Settings panel |
 | `mustrum config models` | List models installed on the configured Ollama instance (marks the current `llm_model`/`embed_model`) — same list the UI Settings dropdowns fetch |
 | `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
 | `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |
@@ -181,6 +185,21 @@ value and the rest of the form stays usable. Changes take effect on the next
 `mustrum` invocation / `mustrum ui` restart; a running `mustrum ui` process
 does not hot-reload them, since its Ollama clients are built once at startup.
 
+**Switching to Anthropic:** `llm_provider` picks the generation backend —
+`ollama` (default) or `anthropic`:
+
+```sh
+mustrum config set --llm-provider anthropic --anthropic-model claude-sonnet-5
+```
+
+Embeddings always stay on Ollama (Anthropic has no embeddings endpoint), so
+`embed_model`/`ollama_url` still matter either way. The Anthropic API key is
+never stored in `config.toml` — set `ANTHROPIC_API_KEY` in your environment,
+or run `ant auth login`; mustrum resolves credentials the same way the
+Anthropic SDK/CLI do. `anthropic_max_tokens` (default 8192) caps a single
+reply; a cut-off response raises loudly instead of failing silently
+downstream, same as Ollama's `num_ctx` truncation guard.
+
 `mustrum config show` prints the effective settings and where each one came
 from (defaults ← global file ← library file ← `MUSTRUM_DB`/`MUSTRUM_OLLAMA_URL`
 env vars, in that order). Two rules for synced libraries: never run mustrum
@@ -191,9 +210,10 @@ machine — nothing personal is ever part of this repository, enforced by
 
 ## Status
 
-Phase 1 (MVP) complete: ingest → summarise → match → cite, graph export,
-contacts, CLI. Next: Phase 2 (export/backup, brainstorming mode) and the
-Anthropic provider. See:
+Phases 0–2 complete (MVP, GUI, configuration, chat & MCP), plus the
+Anthropic provider (E10-1) — see [docs/BACKLOG.md](docs/BACKLOG.md) for the
+full, current story-by-story status. Remaining: watch-folder auto-ingest,
+Zotero/contact import, and a provider-benchmarking harness. See:
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — what it must do
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it is built

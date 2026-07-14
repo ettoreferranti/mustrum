@@ -397,6 +397,30 @@ class TestConfigCommand:
         invoke("config", "set", "--unpaywall-email", "")
         assert 'unpaywall_email = ""' in (tmp_path / "config.toml").read_text()
 
+    def test_set_switches_to_anthropic(self, tmp_path):
+        """E10-1: llm_provider/anthropic_model/anthropic_max_tokens are
+        config-switchable through the same `config set` command."""
+        out = invoke(
+            "config",
+            "set",
+            "--llm-provider",
+            "anthropic",
+            "--anthropic-model",
+            "claude-opus-4-8",
+            "--anthropic-max-tokens",
+            "4096",
+        )
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_provider = "anthropic"' in content
+        assert 'anthropic_model = "claude-opus-4-8"' in content
+        assert "anthropic_max_tokens = 4096" in content
+        shown = invoke("config", "show", "--path", str(tmp_path / "global" / "absent.toml"))
+        assert "anthropic" in shown and "claude-opus-4-8" in shown
+        assert out  # wrote confirmation echoed
+
+    def test_set_rejects_unknown_llm_provider(self):
+        invoke("config", "set", "--llm-provider", "openai", expect_exit=1)
+
     def test_set_requires_at_least_one_option(self):
         invoke("config", "set", expect_exit=1)
 

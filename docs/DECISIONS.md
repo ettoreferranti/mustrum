@@ -259,3 +259,32 @@ Implementation note: the per-item read callback must take zero parameters
 default) as turning the registration into a URI *template* instead of a
 concrete resource, which doesn't match a fixed, already-interpolated URI
 like `mustrum://sources/3`; each id is captured via closure instead.
+
+## ADR-21 — AnthropicProvider: config-switchable, no core changes (2026-07-14, accepted)
+
+Resolves E10-1. `mustrum/adapters/anthropic.py::AnthropicLLM` implements the
+existing `LLMProvider` Protocol unchanged (ADR-4/ADR-8 pattern) — `core/`
+never learns a new provider exists. `Config.llm_provider` ("ollama" |
+"anthropic", default "ollama") is a new library setting alongside
+`anthropic_model` (default `claude-sonnet-5` — near-Opus quality on
+summarise/rationale/brainstorm at a fraction of Opus cost, since these run
+once per source/match/idea across a whole library) and
+`anthropic_max_tokens`; `mustrum/cli/main.py::_build_llm` switches on it.
+Embeddings always come from Ollama regardless of `llm_provider` — Anthropic
+has no embeddings endpoint, and `EmbeddingProvider` is a separate port. The
+API key is never read from config or stored in `config.toml`: `AnthropicLLM`
+constructs a bare `anthropic.Anthropic()`, which resolves credentials from
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/an `ant auth login` profile —
+consistent with privacy rule 9 (config.toml must never carry secrets, even
+though it isn't committed). `json_schema` structured output reuses
+`output_config.format` (Anthropic's equivalent of Ollama's `format`,
+ADR-14): syntax is constrained, but evidence quotes still pass
+`GroundingVerifier` verbatim like every other provider — the rigour kernel
+does not know or care which provider ran. `stop_reason == "max_tokens"`
+raises loudly (mirrors Ollama's `done_reason=length` truncation error) and
+`stop_reason == "refusal"` raises with Anthropic's `stop_details.explanation`
+when present, since a declined generation must never be silently swallowed.
+GUI Settings-panel parity (provider dropdown, like E12-2's Ollama model
+dropdown) is deliberately out of scope here — CLI/config-file switching
+(`mustrum config set --llm-provider anthropic --anthropic-model ...`) is
+sufficient for this story; a GUI story can follow if wanted.

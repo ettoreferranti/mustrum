@@ -8,7 +8,13 @@
 > `anthropic_model`/`anthropic_max_tokens` + `cli/main.py::_build_llm` on the
 > CLI side and `SettingsPayload`/`POST /api/settings` on the GUI side (same
 > save-then-restart-notice model as ADR-16), ADR-21, zero core changes;
-> earlier same day E11-2: GUI tag editing (add/remove on sources and
+> plus a graceful-failure fix found via live testing without an API key set
+> — new `mustrum/adapters/errors.py::ProviderError` base (`OllamaError`/
+> `AnthropicError` both subclass it) lets `cli/main.py::main()` catch any
+> provider failure at the real process entry point (one clean line +
+> `SystemExit(1)`, not a raw traceback) and lets the GUI's new
+> `@app.exception_handler(ProviderError)` turn the same failure into a
+> flash-able 502 instead of an opaque 500; earlier same day E11-2: GUI tag editing (add/remove on sources and
 > ideas via existing `tag`/`untag`), contact links (`POST`/`GET
 > /api/{sources|ideas}/{id}/contacts`, GUI counterpart of `mustrum contact
 > link`), and citation audit upload (`POST /api/audit`, GUI counterpart of
@@ -93,6 +99,9 @@ mustrum/
                      #   Anthropic Messages API, config-switchable via
                      #   Config.llm_provider; no EmbeddingProvider (Anthropic
                      #   has none) — embeddings stay on Ollama either way
+    errors.py        # ProviderError (ADR-21): shared base for OllamaError/
+                     #   AnthropicError so CLI/GUI can catch any provider
+                     #   failure without importing each adapter's own module
     arxiv.py         # MetadataFetcher for arXiv IDs (Atom API + /bibtex)
     crossref.py      # MetadataFetcher for DOIs (api.crossref.org + doi.org)
     pdf.py           # TextExtractors: PyMuPDF for PDFs, passthrough for text

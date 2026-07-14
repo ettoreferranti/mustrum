@@ -80,6 +80,40 @@ class TestAnthropicLLM:
         with pytest.raises(AnthropicError, match="request failed"):
             AnthropicLLM("m", client=mock_client(handler)).generate("p")
 
+    def test_missing_credentials_gives_actionable_error(self):
+        """The SDK raises a bare TypeError (not an AnthropicError subclass)
+        when no key/token/profile can be found at all — this must become a
+        clear, actionable AnthropicError, not an unhandled crash."""
+
+        class _RaisingMessages:
+            def create(self, **kwargs):
+                raise TypeError(
+                    '"Could not resolve authentication method. Expected one of '
+                    "api_key, auth_token, or credentials to be set. Or for one of "
+                    'the `X-Api-Key` or `Authorization` headers to be explicitly '
+                    'omitted"'
+                )
+
+        class _StubClient:
+            messages = _RaisingMessages()
+
+        with pytest.raises(AnthropicError, match="no Anthropic credentials found"):
+            AnthropicLLM("m", client=_StubClient()).generate("p")  # type: ignore[arg-type]
+
+    def test_unrelated_type_error_is_not_swallowed(self):
+        """Only the specific 'no credentials' TypeError is remapped — any
+        other TypeError (a genuine bug) must still propagate as itself."""
+
+        class _RaisingMessages:
+            def create(self, **kwargs):
+                raise TypeError("unrelated bug, nothing to do with credentials")
+
+        class _StubClient:
+            messages = _RaisingMessages()
+
+        with pytest.raises(TypeError, match="unrelated bug"):
+            AnthropicLLM("m", client=_StubClient()).generate("p")  # type: ignore[arg-type]
+
     def test_refusal_raises(self):
         def handler(request):
             return message_response(

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mustrum.adapters.archive import archive_original, archived_file, delete_archived
+from mustrum.adapters.errors import ProviderError
 from mustrum.config import Config, save_library_config
 from mustrum.core.models import (
     Contact,
@@ -187,6 +188,16 @@ def create_app(
             file=sys.stderr,
         )
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    @app.exception_handler(ProviderError)
+    async def log_provider_errors(request: Request, exc: ProviderError) -> JSONResponse:
+        """A provider adapter (Ollama down, Anthropic misconfigured, ...) can
+        fail deep inside a service call with no HTTPException wrapping it —
+        without this handler FastAPI's default unhandled-exception 500 would
+        reach the GUI as an opaque error with no flash-able detail and no
+        stderr line (E11-5)."""
+        print(f"[mustrum ui] {request.method} {request.url.path} -> 502: {exc}", file=sys.stderr)
+        return JSONResponse({"detail": str(exc)}, status_code=502)
 
     def summariser() -> SummariseService:
         return SummariseService(repo, llm, max_source_chars=config.max_source_chars)

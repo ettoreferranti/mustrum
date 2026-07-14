@@ -198,9 +198,10 @@ ones). Embeddings always stay on Ollama (Anthropic has no embeddings endpoint), 
 `embed_model`/`ollama_url` still matter either way. The Anthropic API key is
 never stored in `config.toml` — set `ANTHROPIC_API_KEY` in your environment,
 or run `ant auth login`; mustrum resolves credentials the same way the
-Anthropic SDK/CLI do. `anthropic_max_tokens` (default 8192) caps a single
-reply; a cut-off response raises loudly instead of failing silently
-downstream, same as Ollama's `num_ctx` truncation guard.
+Anthropic SDK/CLI do — if no credentials are found, both the CLI and the UI
+report a clear one-line error rather than crashing. `anthropic_max_tokens`
+(default 8192) caps a single reply; a cut-off response raises loudly instead
+of failing silently downstream, same as Ollama's `num_ctx` truncation guard.
 
 `mustrum config show` prints the effective settings and where each one came
 from (defaults ← global file ← library file ← `MUSTRUM_DB`/`MUSTRUM_OLLAMA_URL`

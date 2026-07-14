@@ -13,8 +13,10 @@ from typing import Any
 
 import anthropic
 
+from mustrum.adapters.errors import ProviderError
 
-class AnthropicError(RuntimeError):
+
+class AnthropicError(ProviderError):
     pass
 
 
@@ -53,6 +55,16 @@ class AnthropicLLM:
                 messages=[{"role": "user", "content": prompt}],
                 **kwargs,
             )
+        except TypeError as exc:
+            # the SDK raises a bare TypeError (not an AnthropicError subclass)
+            # when it can't find a key/token/profile at all — this is the
+            # "no credentials configured" case, not a bug in our request
+            if "authentication method" not in str(exc):
+                raise
+            raise AnthropicError(
+                "no Anthropic credentials found — set ANTHROPIC_API_KEY in your "
+                "environment, or run `ant auth login`"
+            ) from exc
         except anthropic.APIError as exc:
             raise AnthropicError(f"Anthropic request failed: {exc}") from exc
         if response.stop_reason == "refusal":

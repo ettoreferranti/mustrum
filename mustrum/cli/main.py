@@ -13,6 +13,7 @@ import typer
 if TYPE_CHECKING:
     from mustrum.adapters.oa import FullTextResult
 
+from mustrum.adapters.errors import ProviderError
 from mustrum.adapters.fake import FakeEmbeddingProvider, FakeLLMProvider
 from mustrum.adapters.ollama import OllamaEmbedder, OllamaLLM
 from mustrum.adapters.pdf import extractor_for
@@ -1274,7 +1275,18 @@ def contact_link(
 
 
 def main() -> None:
-    app()
+    """Any provider adapter (Ollama down, Anthropic misconfigured, ...) can
+    fail deep inside a command's core-service call; catching ProviderError
+    here — rather than at every call site — turns that into one clean error
+    line instead of a raw traceback. `_fail()`'s `typer.Exit` isn't usable
+    here: it's only caught specially inside Click's own `app()` call, and
+    raising it after that call has already returned/raised is itself an
+    uncaught exception — a traceback, just a different one."""
+    try:
+        app()
+    except ProviderError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

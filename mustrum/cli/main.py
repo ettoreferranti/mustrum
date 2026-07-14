@@ -161,6 +161,44 @@ def _archive_ingested(ctx: Context, source: Source, path: Path) -> None:
     )
 
 
+@dataclass(frozen=True)
+class _PdfOutcome:
+    # "ingested" | "duplicate_conflict" (on_duplicate=fail) |
+    # "duplicate_skipped" (on_duplicate=skip, the default) | "failed"
+    status: str
+    message: str
+    source_id: int | None = None
+
+
+def _ingest_pdf(
+    ctx: Context, service: IngestService, pdf: Path, kind: SourceKind, on_duplicate: str
+) -> _PdfOutcome:
+    """Ingest one PDF through the shared dedup + archive pipeline (E1-11);
+    used by both `ingest folder` (one-shot batch) and `watch` (continuous,
+    E9-3) so the two never drift apart."""
+    from mustrum.adapters.pdf import pdf_metadata_title
+
+    extractor = extractor_for(pdf)
+    try:
+        result = service.ingest_document(
+            title=pdf_metadata_title(pdf) or pdf.stem,
+            text=extractor.extract(pdf),
+            extraction_method=extractor.extraction_method,
+            kind=kind,
+            on_duplicate=on_duplicate,  # type: ignore[arg-type]
+        )
+    except DuplicateSourceError as exc:
+        return _PdfOutcome("duplicate_conflict", f"duplicate: {pdf.name} ({exc.matched_on})")
+    except Exception as exc:  # a corrupt PDF must never abort a batch or a long-running watch
+        return _PdfOutcome("failed", f"failed: {pdf.name}: {exc}")
+    _archive_ingested(ctx, result.source, pdf)
+    if result.created:
+        return _PdfOutcome(
+            "ingested", f"ingested [{result.source.id}] {result.source.title}", result.source.id
+        )
+    return _PdfOutcome("duplicate_skipped", f"skipped (already known): {pdf.name}")
+
+
 @ingest_app.command("folder")
 def ingest_folder(
     directory: Path,
@@ -180,36 +218,113 @@ def ingest_folder(
     ctx = _context()
     service = IngestService(ctx.repo, ctx.embedder)
     ingested = skipped = failed = 0
-    from mustrum.adapters.pdf import pdf_metadata_title
-
     for pdf in pdfs:
-        extractor = extractor_for(pdf)
-        try:
-            result = service.ingest_document(
-                title=pdf_metadata_title(pdf) or pdf.stem,
-                text=extractor.extract(pdf),
-                extraction_method=extractor.extraction_method,
-                kind=kind,
-                on_duplicate=on_duplicate,  # type: ignore[arg-type]
-            )
-        except DuplicateSourceError as exc:
-            typer.secho(f"duplicate: {pdf.name} ({exc.matched_on})", fg=typer.colors.YELLOW)
+        outcome = _ingest_pdf(ctx, service, pdf, kind, on_duplicate)
+        if outcome.status == "failed":
+            typer.secho(outcome.message, fg=typer.colors.RED, err=True)
             failed += 1
-            continue
-        except Exception as exc:  # a corrupt PDF must not abort the batch
-            typer.secho(f"failed: {pdf.name}: {exc}", fg=typer.colors.RED, err=True)
+        elif outcome.status == "duplicate_conflict":
+            typer.secho(outcome.message, fg=typer.colors.YELLOW)
             failed += 1
-            continue
-        _archive_ingested(ctx, result.source, pdf)
-        if result.created:
-            ingested += 1
-            typer.echo(f"ingested [{result.source.id}] {result.source.title}")
-        else:
+        elif outcome.status == "duplicate_skipped":
+            typer.echo(outcome.message)
             skipped += 1
-            typer.echo(f"skipped (already known): {pdf.name}")
+        else:
+            typer.echo(outcome.message)
+            ingested += 1
     typer.echo(f"done: {ingested} ingested, {skipped} skipped, {failed} failed")
     if failed:
         raise typer.Exit(code=1)
+
+
+def _move_unique(src: Path, dest_dir: Path) -> Path:
+    """Move src into dest_dir, appending a numeric suffix instead of ever
+    silently overwriting a same-named file already moved there."""
+    dest_dir.mkdir(exist_ok=True)
+    dest = dest_dir / src.name
+    counter = 1
+    while dest.exists():
+        dest = dest_dir / f"{src.stem}-{counter}{src.suffix}"
+        counter += 1
+    src.rename(dest)
+    return dest
+
+
+def _scan_once(
+    directory: Path,
+    recursive: bool,
+    ingested_dir: Path,
+    failed_dir: Path,
+    seen: dict[Path, tuple[int, float]],
+    ctx: Context,
+    service: IngestService,
+    kind: SourceKind,
+) -> dict[Path, tuple[int, float]]:
+    """One `watch` poll (E9-3): ingest every PDF whose (size, mtime) is
+    unchanged since the previous call — a file still being written or
+    synced changes on every poll, so it's left alone until it settles.
+    Every resolved file (ingested or already-known) moves into
+    ingested_dir; a file that fails to extract moves into failed_dir, so
+    nothing already resolved is ever rescanned or retried forever.
+    Returns the seen-state to pass into the next call."""
+    pattern = "**/*.pdf" if recursive else "*.pdf"
+    pdfs = [
+        p
+        for p in directory.glob(pattern)
+        if p.is_file() and ingested_dir not in p.parents and failed_dir not in p.parents
+    ]
+    next_seen: dict[Path, tuple[int, float]] = {}
+    for pdf in pdfs:
+        stat = pdf.stat()
+        stamp = (stat.st_size, stat.st_mtime)
+        if seen.get(pdf) != stamp:
+            next_seen[pdf] = stamp  # new this round, or still changing — wait one more poll
+            continue
+        outcome = _ingest_pdf(ctx, service, pdf, kind, "skip")
+        if outcome.status == "failed":
+            typer.secho(outcome.message, fg=typer.colors.RED, err=True)
+            _move_unique(pdf, failed_dir)
+        else:
+            typer.echo(outcome.message)
+            _move_unique(pdf, ingested_dir)
+    return next_seen
+
+
+@app.command("watch")
+def watch(
+    directory: Path,
+    interval: Annotated[
+        int, typer.Option("--interval", help="Seconds between scans.")
+    ] = 30,
+    recursive: Annotated[bool, typer.Option("--recursive", "-r")] = False,
+    kind: SourceKind = SourceKind.PAPER,
+) -> None:
+    """Watch a folder for new PDFs and ingest them automatically (E9-3).
+    Runs until Ctrl+C. A file is ingested only after its size and
+    modification time are unchanged across two consecutive scans, so a
+    download or sync still in progress is left alone until it settles.
+    Already-known papers are skipped safely (same dedup as `ingest
+    folder`); every resolved file moves into an `ingested/` subfolder so
+    re-scans stay bounded as the folder grows, and files that fail to
+    extract move into `failed/` instead of being retried forever."""
+    import time
+
+    if not directory.is_dir():
+        _fail(f"no such directory: {directory}")
+    ingested_dir = directory / "ingested"
+    failed_dir = directory / "failed"
+    ctx = _context()
+    service = IngestService(ctx.repo, ctx.embedder)
+    seen: dict[Path, tuple[int, float]] = {}
+    typer.echo(f"watching {directory} every {interval}s (Ctrl+C to stop)")
+    try:
+        while True:
+            seen = _scan_once(
+                directory, recursive, ingested_dir, failed_dir, seen, ctx, service, kind
+            )
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        typer.echo("\nstopped watching")
 
 
 def _fetch_full_text(ctx: Context, meta: FetchedMetadata) -> FullTextResult:

@@ -2,7 +2,13 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-14 (E10-1: `AnthropicProvider` —
+> Last updated: 2026-07-14 (E10-2: provider benchmarking harness —
+> `mustrum/benchmark/harness.py::run_benchmark` runs fixed synthetic
+> paper/idea fixtures through any `LLMProvider` via the unmodified
+> `SummariseService`/`RationaleService` grounding loop and reports a pass
+> rate; a provider with no credentials is `unavailable`, never a fabricated
+> 0%; `mustrum benchmark --providers fake,ollama[,anthropic]` CLI surface,
+> ADR-22, zero core changes; earlier same day E10-1: `AnthropicProvider` —
 > `mustrum/adapters/anthropic.py::AnthropicLLM` implements `LLMProvider`
 > unchanged, config-switchable via new `Config.llm_provider`/
 > `anthropic_model`/`anthropic_max_tokens` + `cli/main.py::_build_llm` on the
@@ -120,6 +126,10 @@ mustrum/
                      #   Also every source/idea as a listable MCP resource
                      #   (E13-4, ADR-20)
   graph/             # self-contained HTML export (vendored Cytoscape.js)
+  benchmark/         # provider benchmarking harness (E10-2, ADR-22):
+                     #   harness.py::run_benchmark drives SummariseService/
+                     #   RationaleService against fixed fixtures for any
+                     #   LLMProvider; `mustrum benchmark` CLI command
 tests/
   unit/  integration/
 docs/
@@ -316,6 +326,14 @@ here is a recall problem, not a grounding violation.
   byte-identical. Archived originals are binary and stay out of the text
   bundle; `file_path` round-trips so a restored DB finds a copied `files/`
   directory again.
+- **Provider benchmark (E10-2, ADR-22):** `mustrum benchmark` runs a fixed
+  set of synthetic paper/idea fixtures through `SummariseService`/
+  `RationaleService` for each named `LLMProvider` (unmodified — no core
+  changes), on a throwaway in-memory `SqliteRepo` with `FakeEmbeddingProvider`
+  (embedding quality isn't measured here). Reports a grounding-verification
+  pass rate per provider; a provider with no usable credentials is
+  `unavailable`, never scored 0% — those mean different things and
+  conflating them would defeat the point of comparing providers.
 
 ## 7. Testing strategy
 

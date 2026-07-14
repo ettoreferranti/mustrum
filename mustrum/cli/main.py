@@ -1072,6 +1072,65 @@ def restore_cmd(directory: Path) -> None:
     )
 
 
+@app.command("benchmark")
+def benchmark(
+    providers: Annotated[
+        str,
+        typer.Option(
+            "--providers",
+            help="Comma-separated: fake, ollama, anthropic. anthropic is opt-in only "
+            "(costs money, needs a key).",
+        ),
+    ] = "fake,ollama",
+    repeats: Annotated[
+        int, typer.Option("--repeats", help="Attempts per task per provider.")
+    ] = 1,
+) -> None:
+    """Run a fixed set of summarise/rationale tasks through each named
+    provider and compare grounding-verification pass rates (E10-2). Uses a
+    throwaway in-memory library per provider — never touches your real one.
+    A provider with no usable credentials is reported unavailable, not
+    scored 0%."""
+    from mustrum.benchmark.harness import GOOD_FAKE_RESPONSE, run_benchmark
+
+    config = load_config()
+    names = [p.strip() for p in providers.split(",") if p.strip()]
+    if not names:
+        _fail("no providers given")
+        return
+    llms: dict[str, LLMProvider] = {}
+    for name in names:
+        if name == "fake":
+            llms[name] = FakeLLMProvider(default_response=GOOD_FAKE_RESPONSE)
+        elif name == "ollama":
+            llms[name] = OllamaLLM(
+                config.llm_model, base_url=config.ollama_url, num_ctx=config.num_ctx
+            )
+        elif name == "anthropic":
+            from mustrum.adapters.anthropic import AnthropicLLM
+
+            llms[name] = AnthropicLLM(
+                config.anthropic_model, max_tokens=config.anthropic_max_tokens
+            )
+        else:
+            _fail(f"unknown provider {name!r} — choose from: fake, ollama, anthropic")
+            return
+
+    for report in run_benchmark(llms, repeats=repeats):
+        if not report.available:
+            typer.secho(
+                f"{report.provider}: unavailable — {report.unavailable_reason}",
+                fg=typer.colors.YELLOW,
+            )
+            continue
+        passed = sum(1 for r in report.results if r.passed)
+        assert report.pass_rate is not None
+        typer.echo(f"{report.provider}: {report.pass_rate:.0%} ({passed}/{len(report.results)})")
+        for r in report.results:
+            if not r.passed:
+                typer.secho(f"  FAIL {r.task} [{r.label}]: {r.detail}", fg=typer.colors.RED)
+
+
 _CONFIG_TEMPLATE = """\
 # Mustrum GLOBAL configuration — local to this machine, never part of any
 # repo. This file's only real job is pointing at your library; everything

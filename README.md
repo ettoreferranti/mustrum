@@ -23,9 +23,10 @@ uv run mustrum ui
 
 Library browsing, ingestion (arXiv/DOI/file upload), verified summaries,
 idea matching with explanations, related-work + BibTeX preview, the knowledge
-graph, and brainstorming — all served from localhost, fully self-contained
-(no CDNs, nothing leaves your machine). The GUI is a thin adapter over the
-same services as the CLI: everything it does has a CLI equivalent below.
+graph, brainstorming, tag editing, contact links, and citation-audit upload —
+all served from localhost, fully self-contained (no CDNs, nothing leaves
+your machine). The GUI is a thin adapter over the same services as the CLI:
+everything it does has a CLI equivalent below.
 
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and
 [Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled.

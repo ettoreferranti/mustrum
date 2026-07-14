@@ -150,6 +150,16 @@
       <div class="card"><h3>Ideas</h3><div id="idea-list"></div></div>
       <div class="card"><h3>Gaps</h3><div id="gaps"></div>
         <button class="ghost" onclick="loadGaps()">Refresh gap report</button></div>
+      <div class="card">
+        <h3>Audit a draft</h3>
+        <p class="meta" style="color:var(--muted)">Upload a .tex/.md draft to check every
+          citation key against the library.</p>
+        <div class="inline">
+          <input type="file" id="audit-file" accept=".tex,.md,.txt">
+          <button class="act" onclick="runAudit()">Check citations</button>
+        </div>
+        <div id="audit-result"></div>
+      </div>
     </div>
     <div class="col">
       <div class="card" id="idea-detail"><h3>Select an idea</h3>
@@ -242,7 +252,7 @@
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let sources = [], ideas = [], selectedSource = null, selectedIdea = null;
+let sources = [], ideas = [], contacts = [], selectedSource = null, selectedIdea = null;
 
 function flash(msg, err) {
   const el = $("flash");
@@ -513,6 +523,19 @@ async function showSource(id) {
     ${!s.doi ? `<button class="ghost" title="look up authors/year/DOI/BibTeX on Crossref by exact title"
       onclick="busy(this, () => enrich(${id}))">Find metadata</button>` : ""}
     </div>
+    <h3 style="margin-top:14px">Tags</h3>
+    <p>${tagChipsHtml("source", id, s.tags)}</p>
+    <div class="inline">
+      <input type="text" id="sd-tag-input" placeholder="add tag"
+        style="max-width:160px" onkeydown="if(event.key==='Enter')addEntityTag('source', ${id}, 'sd-tag-input')">
+      <button class="ghost" onclick="addEntityTag('source', ${id}, 'sd-tag-input')">Add tag</button>
+    </div>
+    <h3 style="margin-top:14px">Contacts</h3>
+    <div id="sd-contacts">loading…</div>
+    ${contactPickerHtml("sd-contact-pick", "sd-contact-why")}
+    <div class="inline">
+      <button class="ghost" onclick="linkEntityContact('source', ${id}, 'sd-contact-pick', 'sd-contact-why', 'sd-contacts')">Link contact</button>
+    </div>
     <h3 style="margin-top:14px">Notes</h3>
     <textarea id="sd-notes">${esc(s.notes)}</textarea>
     <div class="inline" style="margin-top:6px">
@@ -520,6 +543,7 @@ async function showSource(id) {
       <button class="ghost" style="color:var(--warn);border-color:var(--warn)"
         onclick="deleteSource(${id})">Delete source</button>
     </div>`;
+  await loadEntityContacts("source", id, "sd-contacts");
 }
 async function enrich(id) {
   const r = await post(`/api/sources/${id}/enrich`);
@@ -661,7 +685,21 @@ async function showIdea(id) {
     </div>
     <div id="match-list">${matches.map(matchHtml).join("") ||
       "<p style='color:var(--muted)'>No matches yet — click Suggest.</p>"}</div>
-    <pre id="rw-output" style="display:none"></pre>`;
+    <pre id="rw-output" style="display:none"></pre>
+    <h3 style="margin-top:14px">Tags</h3>
+    <p>${tagChipsHtml("idea", id, idea.tags)}</p>
+    <div class="inline">
+      <input type="text" id="id-tag-input" placeholder="add tag"
+        style="max-width:160px" onkeydown="if(event.key==='Enter')addEntityTag('idea', ${id}, 'id-tag-input')">
+      <button class="ghost" onclick="addEntityTag('idea', ${id}, 'id-tag-input')">Add tag</button>
+    </div>
+    <h3 style="margin-top:14px">Contacts</h3>
+    <div id="id-contacts">loading…</div>
+    ${contactPickerHtml("id-contact-pick", "id-contact-why")}
+    <div class="inline">
+      <button class="ghost" onclick="linkEntityContact('idea', ${id}, 'id-contact-pick', 'id-contact-why', 'id-contacts')">Link contact</button>
+    </div>`;
+  await loadEntityContacts("idea", id, "id-contacts");
 }
 function matchHtml(m) {
   return `<div class="card" id="match-${m.id}">
@@ -711,6 +749,28 @@ async function loadGaps() {
     (g.unsupported_ideas.map(i => `<div>· ${esc(i.title)}</div>`).join("") || "<div>—</div>") +
     "<p class='meta'>sources not matched to any idea:</p>" +
     (g.orphan_sources.map(s => `<div>· ${esc(s.title)}</div>`).join("") || "<div>—</div>");
+}
+
+// ---- audit (E11-2) ----
+async function runAudit() {
+  const input = $("audit-file");
+  if (!input.files.length) { flash("choose a draft file first", true); return; }
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const res = await fetch("/api/audit", {method: "POST", body: form});
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    flash(detail, true);
+    return;
+  }
+  const r = await res.json();
+  $("audit-result").innerHTML = `
+    <p class="meta">${r.used_keys.length} citation key(s) used, ${r.known_keys.length} known</p>
+    ${r.unknown_keys.length
+      ? `<p style="color:var(--warn)">Unknown: ${r.unknown_keys.map(esc).join(", ")}</p>`
+      : `<p style="color:var(--ok)">All citations resolve to the library.</p>`}`;
+  input.value = "";
 }
 
 // ---- brainstorm ----
@@ -791,8 +851,8 @@ async function resetChat() {
 
 // ---- contacts ----
 async function loadContacts() {
-  const list = await api("/api/contacts");
-  $("contact-list").innerHTML = list.map(c => `
+  contacts = await api("/api/contacts");
+  $("contact-list").innerHTML = contacts.map(c => `
     <div class="list-item"><b>${esc(c.name)}</b> <span class="badge">${c.kind}</span>
       <div class="meta">${esc(c.affiliation)} ${esc(c.notes)}</div></div>`).join("")
     || "<p style='color:var(--muted)'>No contacts yet.</p>";
@@ -805,6 +865,63 @@ async function addContact() {
   });
   $("c-name").value = ""; $("c-aff").value = ""; $("c-notes").value = "";
   await loadContacts(); await loadStats();
+}
+
+// ---- contact links (E11-2): shared by source and idea detail panels ----
+function contactPickerHtml(pickId, whyId) {
+  return contacts.length
+    ? `<div class="inline">
+         <select id="${pickId}" style="max-width:200px">
+           ${contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
+         </select>
+         <input type="text" id="${whyId}" placeholder="why is this contact relevant?">
+       </div>`
+    : `<p class="meta" style="color:var(--muted)">No contacts yet — add one in the Contacts tab.</p>`;
+}
+async function loadEntityContacts(kind, id, containerId) {
+  const links = await api(`/api/${kind}s/${id}/contacts`);
+  $(containerId).innerHTML = links.length
+    ? links.map(l => `<div class="list-item"><b>${esc(l.name)}</b>
+        <span class="badge">${esc(l.kind)}</span><div class="meta">${esc(l.why)}</div></div>`).join("")
+    : "<p class='meta' style='color:var(--muted)'>No linked contacts.</p>";
+}
+async function linkEntityContact(kind, id, pickId, whyId, containerId) {
+  const pick = $(pickId), why = $(whyId);
+  if (!pick || !pick.value) { flash("add a contact first, in the Contacts tab", true); return; }
+  const reason = why.value.trim();
+  if (!reason) { flash("why must not be empty", true); return; }
+  try {
+    await post(`/api/${kind}s/${id}/contacts`, {contact_id: parseInt(pick.value, 10), why: reason});
+  } catch (e) { flash(e.message, true); return; }
+  why.value = "";
+  await loadEntityContacts(kind, id, containerId);
+  flash("linked");
+}
+
+// ---- tag editing (E11-2): shared by source and idea detail panels ----
+function tagChipsHtml(kind, id, tags) {
+  return tags.length
+    ? tags.map(t => `<span class="badge">${esc(t)}
+        <a href="#" class="tag-remove" data-kind="${kind}" data-id="${id}" data-tag="${esc(t)}"
+           onclick="event.preventDefault();removeTagChip(this)" style="cursor:pointer">✕</a></span>`).join(" ")
+    : "<span class='meta' style='color:var(--muted)'>no tags</span>";
+}
+async function removeTagChip(el) {
+  const {kind, id, tag} = el.dataset;
+  try { await api(`/api/${kind}s/${id}/tags/${encodeURIComponent(tag)}`, {method: "DELETE"}); }
+  catch (e) { flash(e.message, true); return; }
+  if (kind === "source") { await loadSources(); await showSource(parseInt(id, 10)); }
+  else { await loadIdeas(); await showIdea(parseInt(id, 10)); }
+}
+async function addEntityTag(kind, id, inputId) {
+  const input = $(inputId);
+  const tag = input.value.trim();
+  if (!tag) return;
+  try { await post(`/api/${kind}s/${id}/tags`, {text: tag}); }
+  catch (e) { flash(e.message, true); return; }
+  input.value = "";
+  if (kind === "source") { await loadSources(); await showSource(id); }
+  else { await loadIdeas(); await showIdea(id); }
 }
 
 // ---- settings ----

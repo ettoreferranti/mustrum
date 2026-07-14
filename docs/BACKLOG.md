@@ -92,7 +92,7 @@ stories at the bottom of the relevant epic.
 |---|---|---|---|
 | E9-1 | Plain-file export/import (JSON + Markdown + .bib) for git-versionable backup: `export` / `restore` | S | done |
 | E9-2 | Idea brainstorming mode (explicitly-invoked creative output, clearly labelled, never mixed with citation output): `brainstorm` | S | done |
-| E9-3 | Watch-folder auto-ingest for PDFs: `mustrum watch <dir>` polls, ingests once a file's size/mtime settle, moves resolved files into `ingested/`/`failed/` so re-scans stay bounded (ADR-23) | C | done |
+| E9-3 | Watch-folder auto-ingest for PDFs: `mustrum watch <dir>` polls, ingests once a file's size/mtime settle, moves resolved files into `ingested/`/`failed/` so re-scans stay bounded (ADR-23) ([PR #19](https://github.com/ettoreferranti/mustrum/pull/19)) | C | done |
 | E9-4 | Zotero import | C | todo |
 | E9-5 | Contact import (vCard/CSV) — OQ-2 | C | todo |
 

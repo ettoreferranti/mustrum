@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mustrum.adapters.archive import archive_original, archived_file, delete_archived
+from mustrum.adapters.errors import ProviderError
 from mustrum.config import Config, save_library_config
 from mustrum.core.models import (
     Contact,
@@ -84,9 +85,12 @@ class MetadataPayload(BaseModel):
 
 
 class SettingsPayload(BaseModel):
+    llm_provider: str | None = None
     ollama_url: str | None = None
     llm_model: str | None = None
     embed_model: str | None = None
+    anthropic_model: str | None = None
+    anthropic_max_tokens: int | None = None
     max_source_chars: int | None = None
     num_ctx: int | None = None
     unpaywall_email: str | None = None
@@ -107,9 +111,12 @@ class ContactLinkPayload(BaseModel):
 
 def _settings_json(config: Config) -> dict[str, Any]:
     return {
+        "llm_provider": config.llm_provider,
         "ollama_url": config.ollama_url,
         "llm_model": config.llm_model,
         "embed_model": config.embed_model,
+        "anthropic_model": config.anthropic_model,
+        "anthropic_max_tokens": config.anthropic_max_tokens,
         "max_source_chars": config.max_source_chars,
         "num_ctx": config.num_ctx,
         "unpaywall_email": config.unpaywall_email,
@@ -181,6 +188,16 @@ def create_app(
             file=sys.stderr,
         )
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    @app.exception_handler(ProviderError)
+    async def log_provider_errors(request: Request, exc: ProviderError) -> JSONResponse:
+        """A provider adapter (Ollama down, Anthropic misconfigured, ...) can
+        fail deep inside a service call with no HTTPException wrapping it —
+        without this handler FastAPI's default unhandled-exception 500 would
+        reach the GUI as an opaque error with no flash-able detail and no
+        stderr line (E11-5)."""
+        print(f"[mustrum ui] {request.method} {request.url.path} -> 502: {exc}", file=sys.stderr)
+        return JSONResponse({"detail": str(exc)}, status_code=502)
 
     def summariser() -> SummariseService:
         return SummariseService(repo, llm, max_source_chars=config.max_source_chars)
@@ -764,8 +781,15 @@ def create_app(
     @app.post("/api/settings")
     async def update_settings(payload: SettingsPayload) -> dict[str, Any]:
         """Writes the library config next to the database (ADR-16). Does
-        NOT reconfigure this running process — the Ollama clients and
-        max_source_chars were built at startup; restart to pick this up."""
+        NOT reconfigure this running process — the Ollama/Anthropic clients
+        and max_source_chars were built at startup; restart to pick this up."""
+        if payload.llm_provider is not None and payload.llm_provider not in (
+            "ollama",
+            "anthropic",
+        ):
+            raise HTTPException(
+                400, f"llm_provider must be 'ollama' or 'anthropic', got {payload.llm_provider!r}"
+            )
         updates = {k: v for k, v in payload.model_dump().items() if v is not None}
         if not updates:
             raise HTTPException(400, "nothing to update — give at least one field")

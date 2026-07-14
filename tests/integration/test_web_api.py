@@ -5,6 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from mustrum.adapters.errors import ProviderError
 from mustrum.adapters.fake import FakeEmbeddingProvider, FakeLLMProvider
 from mustrum.adapters.sqlite.repo import SqliteRepo
 from mustrum.config import Config
@@ -582,6 +583,35 @@ class TestSettings:
         assert 'llm_model = "llama3.1:8b"' in content
         assert "num_ctx = 8192" in content
 
+    def test_get_reflects_anthropic_defaults(self, client):
+        """E10-1: GUI settings surface the provider switch too."""
+        data = client.get("/api/settings").json()
+        assert data["llm_provider"] == "ollama"
+        assert data["anthropic_model"] == "claude-sonnet-5"
+        assert data["anthropic_max_tokens"] == 8192
+
+    def test_switch_to_anthropic_via_settings(self, client, tmp_path):
+        response = client.post(
+            "/api/settings",
+            json={
+                "llm_provider": "anthropic",
+                "anthropic_model": "claude-opus-4-8",
+                "anthropic_max_tokens": 4096,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["llm_provider"] == "anthropic"
+        assert data["anthropic_model"] == "claude-opus-4-8"
+        content = (tmp_path / "config.toml").read_text()
+        assert 'llm_provider = "anthropic"' in content
+        assert 'anthropic_model = "claude-opus-4-8"' in content
+        assert "anthropic_max_tokens = 4096" in content
+
+    def test_invalid_llm_provider_400(self, client):
+        response = client.post("/api/settings", json={"llm_provider": "openai"})
+        assert response.status_code == 400
+
 
 class TestErrorLogging:
     """E11-5: failed API calls leave a durable record in the ui terminal."""
@@ -595,6 +625,30 @@ class TestErrorLogging:
     def test_successful_call_not_logged(self, client, capsys):
         assert client.get("/api/sources").status_code == 200
         assert "[mustrum ui]" not in capsys.readouterr().err
+
+    def test_provider_error_gives_502_flash_and_stderr_line(self, tmp_path, capsys):
+        """A provider adapter (Ollama down, Anthropic misconfigured, ...) can
+        fail deep inside a service call with no HTTPException around it —
+        must still reach the GUI as a flash-able detail + stderr line, not
+        FastAPI's default opaque 500."""
+
+        class _FailingLLM:
+            model_name = "failing-llm"
+
+            def generate(self, prompt, *, system=None, json_schema=None):
+                raise ProviderError("no Anthropic credentials found")
+
+        repo = SqliteRepo(tmp_path / "web.db")
+        app = create_app(
+            repo, FakeEmbeddingProvider(), _FailingLLM(), Config(db_path=tmp_path / "web.db")
+        )
+        with TestClient(app) as failing_client:
+            source_id = ingest_note(failing_client)
+            response = failing_client.post(f"/api/sources/{source_id}/summarise")
+            assert response.status_code == 502
+            assert "no Anthropic credentials found" in response.json()["detail"]
+            assert "[mustrum ui]" in capsys.readouterr().err
+        repo.close()
 
 
 class TestRename:

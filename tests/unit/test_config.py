@@ -19,6 +19,8 @@ class TestLoadConfig:
         assert config == Config(db_path=tmp_path / "test.db")
         assert config.llm_model == "qwen3:30b"
         assert config.embed_model == "nomic-embed-text"
+        assert config.llm_provider == "ollama"
+        assert config.anthropic_model == "claude-sonnet-5"
 
     def test_toml_overrides(self, tmp_path, monkeypatch):
         monkeypatch.delenv("MUSTRUM_DB", raising=False)
@@ -127,3 +129,19 @@ class TestSaveLibraryConfig:
         config = Config(db_path=tmp_path / "mustrum.db")
         with pytest.raises(ValueError, match="not_a_field"):
             save_library_config(config, {"not_a_field": "x"})
+
+    def test_anthropic_fields_roundtrip(self, tmp_path):
+        """E10-1: llm_provider/anthropic_model/anthropic_max_tokens are
+        editable the same way as the Ollama settings."""
+        config = Config(db_path=tmp_path / "mustrum.db")
+        updated = save_library_config(
+            config,
+            {
+                "llm_provider": "anthropic",
+                "anthropic_model": "claude-opus-4-8",
+                "anthropic_max_tokens": 4096,
+            },
+        )
+        assert updated.llm_provider == "anthropic"
+        assert updated.anthropic_model == "claude-opus-4-8"
+        assert updated.anthropic_max_tokens == 4096

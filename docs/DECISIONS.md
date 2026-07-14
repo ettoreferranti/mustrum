@@ -259,3 +259,63 @@ Implementation note: the per-item read callback must take zero parameters
 default) as turning the registration into a URI *template* instead of a
 concrete resource, which doesn't match a fixed, already-interpolated URI
 like `mustrum://sources/3`; each id is captured via closure instead.
+
+## ADR-21 — AnthropicProvider: config-switchable, no core changes (2026-07-14, accepted)
+
+Resolves E10-1. `mustrum/adapters/anthropic.py::AnthropicLLM` implements the
+existing `LLMProvider` Protocol unchanged (ADR-4/ADR-8 pattern) — `core/`
+never learns a new provider exists. `Config.llm_provider` ("ollama" |
+"anthropic", default "ollama") is a new library setting alongside
+`anthropic_model` (default `claude-sonnet-5` — near-Opus quality on
+summarise/rationale/brainstorm at a fraction of Opus cost, since these run
+once per source/match/idea across a whole library) and
+`anthropic_max_tokens`; `mustrum/cli/main.py::_build_llm` switches on it.
+Embeddings always come from Ollama regardless of `llm_provider` — Anthropic
+has no embeddings endpoint, and `EmbeddingProvider` is a separate port. The
+API key is never read from config or stored in `config.toml`: `AnthropicLLM`
+constructs a bare `anthropic.Anthropic()`, which resolves credentials from
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/an `ant auth login` profile —
+consistent with privacy rule 9 (config.toml must never carry secrets, even
+though it isn't committed). `json_schema` structured output reuses
+`output_config.format` (Anthropic's equivalent of Ollama's `format`,
+ADR-14): syntax is constrained, but evidence quotes still pass
+`GroundingVerifier` verbatim like every other provider — the rigour kernel
+does not know or care which provider ran. `stop_reason == "max_tokens"`
+raises loudly (mirrors Ollama's `done_reason=length` truncation error) and
+`stop_reason == "refusal"` raises with Anthropic's `stop_details.explanation`
+when present, since a declined generation must never be silently swallowed.
+The GUI Settings panel gets the same fields (`llm_provider` dropdown,
+`anthropic_model`/`anthropic_max_tokens`) via `SettingsPayload`/
+`_settings_json`/`POST /api/settings` — requested immediately after this PR
+opened, so folded into the same story rather than split out; same
+save-then-restart-notice model as ADR-16, same 400-on-invalid-value
+validation as the CLI.
+
+**Graceful failure (found via live testing without an API key set):** the
+Anthropic SDK raises a bare `TypeError` — not an `AnthropicError`/
+`anthropic.APIError` subclass — when it can't resolve any credentials at
+all, and that `TypeError` happens client-side inside `messages.create()`
+itself, before any HTTP request, so the original `except anthropic.APIError`
+clause never saw it; it propagated as a raw traceback in the CLI and an
+opaque FastAPI 500 in the GUI. Fixed in two parts: (1) `AnthropicLLM.generate`
+now catches that specific `TypeError` (matched by message, so an unrelated
+`TypeError` — a real bug — still propagates as itself) and re-raises a
+clear `AnthropicError("no Anthropic credentials found — set
+ANTHROPIC_API_KEY ... or run `ant auth login`")`; (2) a new
+`mustrum/adapters/errors.py::ProviderError` base class — `OllamaError` and
+`AnthropicError` both now subclass it — lets both driving adapters catch
+*any* provider failure by one class without eagerly importing each
+adapter's (and its SDK's) module. `cli/main.py::main()` wraps the whole
+`app()` call in `try/except ProviderError`, printing one clean line and
+`raise SystemExit(1)` — deliberately *not* `_fail()`'s `typer.Exit`, which
+is only caught specially inside Click's own `app()` call; raising it after
+that call has already returned/raised is itself an uncaught exception, a
+traceback with a different label. `mustrum/web/api.py` gets a matching
+`@app.exception_handler(ProviderError)` returning a 502 with the message as
+`detail` (flash-able by the existing frontend `api()` helper, no JS
+changes needed) plus the same E11-5 stderr line as every other failed call.
+This isn't Anthropic-specific — Ollama being unreachable hit the identical
+gap (no test ever exercised it, since `CliRunner.invoke()` — used
+throughout `tests/integration/test_cli.py` — catches any exception itself
+and can't reproduce what happens *outside* Click's own handling, at the
+real process entry point) — so both providers are covered by the same fix.

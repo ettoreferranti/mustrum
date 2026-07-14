@@ -234,11 +234,20 @@
       <code id="set-path" style="word-break:break-all"></code> — lives next to
       the database, so it travels with the library. Changes apply after
       restarting <code>mustrum ui</code>.</p>
+    <div class="inline">LLM Provider:
+      <select id="set-llm-provider"><option value="ollama">ollama</option><option value="anthropic">anthropic</option></select>
+    </div>
+    <p class="meta" style="color:var(--muted)">Embeddings always use Ollama regardless (Anthropic
+      has no embeddings endpoint) — the Ollama URL/models below still matter either way. The
+      Anthropic API key is never stored here; set <code>ANTHROPIC_API_KEY</code> in your
+      environment, or run <code>ant auth login</code>.</p>
     <div class="inline">Ollama URL: <input type="text" id="set-ollama-url" placeholder="Ollama URL">
       <button class="ghost" onclick="refreshOllamaModels()">Refresh models</button></div>
     <p class="meta" id="set-models-status" style="color:var(--muted)"></p>
     <div class="inline">LLM Model:<select id="set-llm-model"></select></div>
     <div class="inline">Embedding Model:<select id="set-embed-model"></select></div>
+    <div class="inline">Anthropic Model:<input type="text" id="set-anthropic-model" placeholder="e.g. claude-sonnet-5"></div>
+    <div class="inline">Anthropic Max Tokens:<input type="text" id="set-anthropic-max-tokens" placeholder="anthropic_max_tokens" style="max-width:180px"></div>
     <div class="inline">
     <div class="inline">Max Source Characters:<input type="text" id="set-max-chars" placeholder="max_source_chars" style="max-width:180px"></div>
     <div class="inline">Max Context Size:<input type="text" id="set-num-ctx" placeholder="num_ctx" style="max-width:180px"></div>
@@ -928,7 +937,10 @@ async function addEntityTag(kind, id, inputId) {
 async function loadSettings() {
   const s = await api("/api/settings");
   $("set-path").textContent = s.library_config_path;
+  $("set-llm-provider").value = s.llm_provider;
   $("set-ollama-url").value = s.ollama_url;
+  $("set-anthropic-model").value = s.anthropic_model;
+  $("set-anthropic-max-tokens").value = s.anthropic_max_tokens;
   $("set-max-chars").value = s.max_source_chars;
   $("set-num-ctx").value = s.num_ctx;
   $("set-unpaywall").value = s.unpaywall_email;
@@ -965,15 +977,19 @@ async function refreshOllamaModels() {
 async function saveSettings() {
   const maxChars = parseInt($("set-max-chars").value, 10);
   const numCtx = parseInt($("set-num-ctx").value, 10);
-  if (isNaN(maxChars) || isNaN(numCtx)) {
-    flash("max_source_chars and num_ctx must be numbers", true);
+  const anthropicMaxTokens = parseInt($("set-anthropic-max-tokens").value, 10);
+  if (isNaN(maxChars) || isNaN(numCtx) || isNaN(anthropicMaxTokens)) {
+    flash("max_source_chars, num_ctx, and anthropic_max_tokens must be numbers", true);
     return;
   }
   try {
     await post("/api/settings", {
+      llm_provider: $("set-llm-provider").value,
       ollama_url: $("set-ollama-url").value.trim(),
       llm_model: $("set-llm-model").value,
       embed_model: $("set-embed-model").value,
+      anthropic_model: $("set-anthropic-model").value.trim(),
+      anthropic_max_tokens: anthropicMaxTokens,
       max_source_chars: maxChars,
       num_ctx: numCtx,
       unpaywall_email: $("set-unpaywall").value.trim(),

@@ -32,6 +32,9 @@ EDITABLE_FIELDS = (
     "max_source_chars",
     "num_ctx",
     "unpaywall_email",
+    "llm_provider",
+    "anthropic_model",
+    "anthropic_max_tokens",
 )
 
 
@@ -48,6 +51,13 @@ class Config:
     # contact e-mail for the Unpaywall API (open-access PDF lookup by DOI);
     # empty disables OA lookup for DOI ingestion
     unpaywall_email: str = ""
+    # which LLMProvider `_context()` builds (E10-1): "ollama" or "anthropic".
+    # Embeddings always come from Ollama regardless — Anthropic has no
+    # embeddings endpoint. The API key is never stored here (ADR-4/privacy
+    # rule 9): it's resolved from ANTHROPIC_API_KEY / `ant auth login` only.
+    llm_provider: str = "ollama"
+    anthropic_model: str = "claude-sonnet-5"
+    anthropic_max_tokens: int = 8192
 
     @property
     def files_dir(self) -> Path:

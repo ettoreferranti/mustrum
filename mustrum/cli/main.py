@@ -13,6 +13,7 @@ import typer
 if TYPE_CHECKING:
     from mustrum.adapters.oa import FullTextResult
 
+from mustrum.adapters.errors import ProviderError
 from mustrum.adapters.fake import FakeEmbeddingProvider, FakeLLMProvider
 from mustrum.adapters.ollama import OllamaEmbedder, OllamaLLM
 from mustrum.adapters.pdf import extractor_for
@@ -65,6 +66,16 @@ class Context:
     llm: LLMProvider
 
 
+def _build_llm(config: Config) -> LLMProvider:
+    """E10-1: `llm_provider` picks the generation backend; embeddings always
+    come from Ollama (Anthropic has no embeddings endpoint) regardless."""
+    if config.llm_provider == "anthropic":
+        from mustrum.adapters.anthropic import AnthropicLLM
+
+        return AnthropicLLM(config.anthropic_model, max_tokens=config.anthropic_max_tokens)
+    return OllamaLLM(config.llm_model, base_url=config.ollama_url, num_ctx=config.num_ctx)
+
+
 def _context() -> Context:
     config = load_config()
     config.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +89,7 @@ def _context() -> Context:
         config,
         repo,
         OllamaEmbedder(config.embed_model, base_url=config.ollama_url),
-        OllamaLLM(config.llm_model, base_url=config.ollama_url, num_ctx=config.num_ctx),
+        _build_llm(config),
     )
 
 
@@ -1099,9 +1110,12 @@ def config_show(
     typer.echo(f"library config:   {config.library_config_path} ({lib_state})")
     typer.echo(f"db_path:          {config.db_path}")
     typer.echo(f"files_dir:        {config.files_dir} (originals archive, follows db_path)")
+    typer.echo(f"llm_provider:     {config.llm_provider}")
     typer.echo(f"ollama_url:       {config.ollama_url}")
     typer.echo(f"llm_model:        {config.llm_model}")
     typer.echo(f"embed_model:      {config.embed_model}")
+    typer.echo(f"anthropic_model:  {config.anthropic_model}")
+    typer.echo(f"anthropic_max_tokens: {config.anthropic_max_tokens}")
     typer.echo(f"max_source_chars: {config.max_source_chars}")
     typer.echo(f"num_ctx:          {config.num_ctx}")
     typer.echo(f"unpaywall_email:  {config.unpaywall_email or '(unset — OA PDF lookup disabled)'}")
@@ -1128,9 +1142,17 @@ def config_init(
 
 @config_app.command("set")
 def config_set(
+    llm_provider: Annotated[
+        str | None,
+        typer.Option("--llm-provider", help='Generation backend: "ollama" or "anthropic" (E10-1)'),
+    ] = None,
     ollama_url: Annotated[str | None, typer.Option("--ollama-url")] = None,
     llm_model: Annotated[str | None, typer.Option("--llm-model")] = None,
     embed_model: Annotated[str | None, typer.Option("--embed-model")] = None,
+    anthropic_model: Annotated[
+        str | None, typer.Option("--anthropic-model", help="Used when llm_provider=anthropic")
+    ] = None,
+    anthropic_max_tokens: Annotated[int | None, typer.Option("--anthropic-max-tokens")] = None,
     max_source_chars: Annotated[int | None, typer.Option("--max-source-chars")] = None,
     num_ctx: Annotated[int | None, typer.Option("--num-ctx")] = None,
     unpaywall_email: Annotated[str | None, typer.Option("--unpaywall-email")] = None,
@@ -1140,12 +1162,18 @@ def config_set(
     `mustrum ui` if it's running, for the change to take effect there."""
     from mustrum.config import save_library_config
 
+    if llm_provider is not None and llm_provider not in ("ollama", "anthropic"):
+        _fail(f"llm_provider must be 'ollama' or 'anthropic', got {llm_provider!r}")
+        return
     updates = {
         k: v
         for k, v in {
+            "llm_provider": llm_provider,
             "ollama_url": ollama_url,
             "llm_model": llm_model,
             "embed_model": embed_model,
+            "anthropic_model": anthropic_model,
+            "anthropic_max_tokens": anthropic_max_tokens,
             "max_source_chars": max_source_chars,
             "num_ctx": num_ctx,
             "unpaywall_email": unpaywall_email,
@@ -1247,7 +1275,18 @@ def contact_link(
 
 
 def main() -> None:
-    app()
+    """Any provider adapter (Ollama down, Anthropic misconfigured, ...) can
+    fail deep inside a command's core-service call; catching ProviderError
+    here — rather than at every call site — turns that into one clean error
+    line instead of a raw traceback. `_fail()`'s `typer.Exit` isn't usable
+    here: it's only caught specially inside Click's own `app()` call, and
+    raising it after that call has already returned/raised is itself an
+    uncaught exception — a traceback, just a different one."""
+    try:
+        app()
+    except ProviderError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

@@ -14,10 +14,12 @@ from typing import Any
 
 import httpx
 
+from mustrum.adapters.errors import ProviderError
+
 _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
 
-class OllamaError(RuntimeError):
+class OllamaError(ProviderError):
     pass
 
 

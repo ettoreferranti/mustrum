@@ -119,7 +119,7 @@ stories at the bottom of the relevant epic.
 
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E10-1 | AnthropicProvider implementing LLMProvider (config-switchable, no core changes) | M | todo |
+| E10-1 | AnthropicProvider implementing LLMProvider (config-switchable via `llm_provider`/`anthropic_model`/`anthropic_max_tokens`, no core changes, ADR-21), including GUI Settings-panel parity (`POST /api/settings` + Settings tab provider dropdown) ([PR #17](https://github.com/ettoreferranti/mustrum/pull/17)) | M | done |
 | E10-2 | Provider benchmarking harness: same tasks via fake/Ollama/Anthropic, compare grounding-verification pass rates | S | todo |
 
 ## Phase 4 — Chat & MCP

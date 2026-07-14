@@ -148,6 +148,7 @@ the archive for sources ingested before this feature.
 | `mustrum config models` | List models installed on the configured Ollama instance (marks the current `llm_model`/`embed_model`) — same list the UI Settings dropdowns fetch |
 | `mustrum export <dir>` | Whole library as plain files: JSON + verbatim texts + byte-exact `.bib` + Markdown views (git-friendly backup) |
 | `mustrum restore <dir>` | Rebuild the library from an export into an empty database (embeddings recomputed) |
+| `mustrum benchmark --providers fake,ollama[,anthropic] --repeats N` | Run a fixed summarise/rationale task set through each named provider and compare grounding-verification pass rates, on a throwaway in-memory library (never your real one); a provider with no usable credentials is reported unavailable, not scored 0% |
 
 The typical loop: ingest → summarise → capture ideas → match suggest/confirm
 → related-work + bib when writing → audit before submitting → graph to see
@@ -214,9 +215,9 @@ machine — nothing personal is ever part of this repository, enforced by
 ## Status
 
 Phases 0–2 complete (MVP, GUI, configuration, chat & MCP), plus the
-Anthropic provider (E10-1) — see [docs/BACKLOG.md](docs/BACKLOG.md) for the
-full, current story-by-story status. Remaining: watch-folder auto-ingest,
-Zotero/contact import, and a provider-benchmarking harness. See:
+Anthropic provider and benchmarking harness (E10-1/E10-2) — see
+[docs/BACKLOG.md](docs/BACKLOG.md) for the full, current story-by-story
+status. Remaining: watch-folder auto-ingest and Zotero/contact import. See:
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — what it must do
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it is built

@@ -319,3 +319,32 @@ gap (no test ever exercised it, since `CliRunner.invoke()` — used
 throughout `tests/integration/test_cli.py` — catches any exception itself
 and can't reproduce what happens *outside* Click's own handling, at the
 real process entry point) — so both providers are covered by the same fix.
+
+## ADR-22 — Provider benchmarking harness: fixed fixtures, unavailable ≠ 0% (2026-07-14, accepted)
+
+Resolves E10-2. `mustrum/benchmark/harness.py::run_benchmark` runs a small
+fixed set of synthetic paper/idea fixtures (`TASKS`) through any
+`LLMProvider` via the unmodified `SummariseService`/`RationaleService`
+grounding loop, tallying real `GroundingFailure`/`RationaleFailure`
+outcomes into a pass rate — no core changes, same pattern as ADR-21. Each
+provider gets a fresh in-memory `SqliteRepo` and `FakeEmbeddingProvider`
+(embedding/matching quality isn't what this measures, only generation
+grounding is), so runs never touch the user's real library and never need
+Ollama's embed endpoint even when benchmarking Anthropic. A provider that
+raises `ProviderError` (no credentials, unreachable, ...) is reported
+`unavailable` with the reason, never given a fabricated 0% — those are
+different facts ("couldn't run" vs "ran and failed to ground") and
+conflating them would misinform exactly the comparison this story exists
+to make. One provider's unavailability doesn't abort the run; the rest
+still get scored.
+
+`mustrum benchmark --providers fake,ollama[,anthropic] --repeats N` is the
+CLI surface; `anthropic` must be named explicitly (costs money, needs a
+key) — the default is `fake,ollama`. The `fake` fixtures all share one
+boilerplate sentence (`_ANCHOR`) specifically so a single
+`FakeLLMProvider(default_response=GOOD_FAKE_RESPONSE)` grounds against
+every fixture regardless of call order — this is what lets `fake` work
+out of the box with zero setup, serving as the harness's own self-check
+(and per the backlog title's explicit inclusion of `fake` alongside the
+real providers) offline in the default test suite, independent of whether
+Ollama is running or an Anthropic key is configured.

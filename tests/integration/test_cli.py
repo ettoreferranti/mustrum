@@ -682,3 +682,40 @@ class TestChat:
     def test_exits_cleanly_on_eof(self):
         out = invoke("chat", input="")
         assert "bye." in out
+
+
+class TestBenchmark:
+    """E10-2: provider benchmarking harness — offline via `fake`, no Ollama
+    or Anthropic credentials required for these cases."""
+
+    def test_fake_provider_scores_100_percent(self):
+        out = invoke("benchmark", "--providers", "fake")
+        assert "fake: 100%" in out
+
+    def test_repeats_multiplies_the_denominator(self):
+        out = invoke("benchmark", "--providers", "fake", "--repeats", "2")
+        assert "fake: 100% (8/8)" in out
+
+    def test_unavailable_provider_reported_not_crashed(self, monkeypatch):
+        """Stubs AnthropicLLM itself rather than relying on the ambient
+        environment having no credentials — a machine with a stored `ant
+        auth login` profile would otherwise make a real network call."""
+        from mustrum.adapters.errors import ProviderError
+
+        class _AlwaysDown:
+            model_name = "down"
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def generate(self, *args, **kwargs):
+                raise ProviderError("no Anthropic credentials found")
+
+        monkeypatch.setattr("mustrum.adapters.anthropic.AnthropicLLM", _AlwaysDown)
+        out = invoke("benchmark", "--providers", "fake,anthropic")
+        assert "fake: 100%" in out
+        assert "anthropic: unavailable" in out
+
+    def test_unknown_provider_400(self):
+        out = invoke("benchmark", "--providers", "bogus", expect_exit=1)
+        assert "unknown provider" in out

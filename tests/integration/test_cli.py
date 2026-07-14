@@ -304,6 +304,63 @@ class TestIngestFolder:
         assert "no PDFs found" in invoke("ingest", "folder", str(folder))
 
 
+ZOTERO_BIB = """\
+@article{doe_deep_2021,
+\ttitle = {Deep {Learning} for Graphs: {A} Survey},
+\tdoi = {10.1109/tkde.2020.2981333},
+\tauthor = {Doe, Jane and Smith, John},
+\tyear = {2021},
+\tabstract = {Deep learning has been shown to be successful in many domains.}
+}
+"""
+
+MENDELEY_RIS = """\
+TY  - JOUR
+AU  - Smith, John
+AU  - Doe, Jane
+TI  - Attention mechanisms for sequence modeling
+AB  - We propose a new architecture for sequence modeling.
+DO  - 10.1000/182
+PY  - 2019
+ER  -
+"""
+
+
+class TestIngestReferences:
+    def test_bib_import_and_rerun_skips(self, tmp_path):
+        f = tmp_path / "zotero-export.bib"
+        f.write_text(ZOTERO_BIB)
+        out = invoke("ingest", "references", str(f))
+        assert "imported [1] Deep Learning for Graphs: A Survey" in out
+        assert "1 imported, 0 skipped, 0 failed" in out
+        out = invoke("ingest", "references", str(f))
+        assert "0 imported, 1 skipped, 0 failed" in out
+
+    def test_ris_import(self, tmp_path):
+        f = tmp_path / "mendeley-export.ris"
+        f.write_text(MENDELEY_RIS)
+        out = invoke("ingest", "references", str(f))
+        assert "imported [1] Attention mechanisms for sequence modeling" in out
+        source_out = invoke("source", "show", "1")
+        assert "Smith, John" in source_out
+
+    def test_unsupported_extension_fails(self, tmp_path):
+        f = tmp_path / "export.txt"
+        f.write_text("not a reference export")
+        invoke("ingest", "references", str(f), expect_exit=1)
+
+    def test_missing_file_fails(self):
+        invoke("ingest", "references", "/nonexistent/export.bib", expect_exit=1)
+
+    def test_entry_missing_title_is_skipped_with_warning(self, tmp_path):
+        f = tmp_path / "export.bib"
+        f.write_text("@article{no_title,\n  author = {Doe, Jane}\n}\n" + ZOTERO_BIB)
+        result = runner.invoke(app, ["ingest", "references", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "no title field" in result.output
+        assert "1 imported, 0 skipped, 0 failed" in result.output
+
+
 class TestSummariseAll:
     def _reply(self, quote):
         import json

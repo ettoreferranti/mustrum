@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from mustrum.core.bibtex import extract_citation_key
+from mustrum.core.bibtex import extract_citation_key, make_citation_key, render_derived_entry
 from mustrum.core.models import (
     BibEntry,
     BibOrigin,
@@ -25,6 +25,7 @@ from mustrum.core.models import (
 )
 from mustrum.core.normalize import title_hash
 from mustrum.core.ports import EmbeddingProvider, StorageRepo
+from mustrum.core.refimport import ParsedReference
 from mustrum.core.services.chunk import chunk_text
 
 OnDuplicate = Literal["fail", "skip", "merge"]
@@ -150,6 +151,52 @@ class IngestService:
         self._attach_fetched_bib(saved, meta.raw_bibtex)
         return IngestResult(source=saved, created=True)
 
+    def ingest_reference(
+        self,
+        ref: ParsedReference,
+        kind: SourceKind = SourceKind.PAPER,
+        on_duplicate: OnDuplicate = "skip",
+    ) -> IngestResult:
+        """Ingest one entry parsed from a reference-manager export (BibTeX
+        or RIS, E9-4). Fields are FieldOrigin.EXTRACTED — parsed out of the
+        imported file, not fetched from an authoritative service — and dedup
+        reuses the same DOI/arXiv-id/title-hash matching as every other
+        ingest path.
+        """
+        provenance = tuple(
+            (field, FieldOrigin.EXTRACTED)
+            for field, value in (
+                ("title", ref.title),
+                ("authors", ref.authors),
+                ("year", ref.year),
+                ("doi", ref.doi),
+                ("arxiv_id", ref.arxiv_id),
+            )
+            if value
+        )
+        source = Source(
+            kind=kind,
+            title=ref.title,
+            authors=ref.authors,
+            year=ref.year,
+            doi=ref.doi,
+            arxiv_id=ref.arxiv_id,
+            provenance=provenance,
+        )
+        duplicate = self._find_duplicate(source)
+        if duplicate is not None:
+            result = self._handle_duplicate(
+                source, ref.abstract, "abstract", *duplicate, on_duplicate
+            )
+            if result.merged and self._repo.get_bib_entry(result.source.id) is None:  # type: ignore[arg-type]
+                self._attach_reference_bib(result.source, ref)
+            return result
+        saved = self._repo.add_source(source)
+        if ref.abstract:
+            self._attach_text(saved, ref.abstract, "abstract")
+        self._attach_reference_bib(saved, ref)
+        return IngestResult(source=saved, created=True)
+
     def attach_full_text(self, source_id: int, text: str, extraction_method: str) -> None:
         """Attach a full text to an existing source, or upgrade an abstract
         (ADR-9). A stored full text is never silently replaced.
@@ -264,5 +311,24 @@ class IngestService:
                 citation_key=key,
                 raw_bibtex=raw_bibtex,
                 origin=BibOrigin.FETCHED,
+            )
+        )
+
+    def _attach_reference_bib(self, source: Source, ref: ParsedReference) -> None:
+        """A BibTeX import carries its own byte-exact entry (stored FETCHED,
+        same as an online fetch); a RIS import has no BibTeX form, so one is
+        rendered from the parsed fields (DERIVED) — the same fallback
+        `related-work`'s bib export uses for any source with none fetched."""
+        assert source.id is not None
+        if ref.raw_bibtex is not None:
+            self._attach_fetched_bib(source, ref.raw_bibtex)
+            return
+        key = make_citation_key(source, self._repo.citation_keys())
+        self._repo.set_bib_entry(
+            BibEntry(
+                source_id=source.id,
+                citation_key=key,
+                raw_bibtex=render_derived_entry(source, key),
+                origin=BibOrigin.DERIVED,
             )
         )

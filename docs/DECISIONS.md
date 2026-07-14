@@ -388,3 +388,76 @@ pattern as `mustrum ui`/`mustrum mcp` — no new daemon, service-manager, or
 background-process concept introduced. GUI integration (a "watch" toggle
 in the UI) is out of scope here, matching how E10-1's CLI-first scope was
 only extended to the GUI on request.
+
+## ADR-24 — Reference-manager import: one BibTeX/RIS parser, EXTRACTED provenance (2026-07-14, accepted)
+
+Resolves E9-4. `mustrum ingest references <path>` bulk-imports a Zotero or
+Mendeley library export. Both tools emit the same two standard formats
+(BibTeX `.bib`, RIS `.ris`) rather than exposing a stable API/local DB
+worth integrating against directly, so `core/refimport.py` parses each
+format once — `parse_bibtex`/`parse_ris` — and the same parser handles
+either tool's export; the format is picked from the file extension, not a
+tool fingerprint, since the two tools' output isn't reliably distinguishable
+and it doesn't need to be.
+
+BibTeX entries are split by brace-depth counting rather than a line-based
+or single-regex split, because real exports nest braces inside field
+values to protect capitalisation (Zotero: `{Deep} Learning`) or double-wrap
+the whole title (Mendeley: `{{Title}}`) — both would truncate or mis-split
+under a naive parse. RIS records are grouped between `TY`/`ER` tag lines; a
+handful of tag aliases are treated as equivalent since Zotero and Mendeley
+don't always agree on which one they emit for the same field (`TI`/`T1` for
+title, `PY`/`Y1` for year, `AB`/`N2` for abstract) — again keeping this to
+one parser instead of a per-tool variant. An arXiv id is recovered from a
+`10.48550/arXiv.*` DOI or an `arxiv.org/abs/` URL when present, since
+neither format has a dedicated arXiv-id field. A record with no title is
+skipped with a warning rather than aborting the whole file — one bad entry
+in a hundred-paper export must not cost the other ninety-nine.
+
+Parsed fields get `FieldOrigin.EXTRACTED` (`core/models.py`'s "parsed out
+of the source file" case — until now declared but unused), distinct from
+`FieldOrigin.FETCHED` used for arXiv/Crossref: an imported record was
+read out of a local file, not retrieved live from an authoritative
+service, and the distinction is visible in `source show`'s per-field
+provenance. `IngestService.ingest_reference` otherwise mirrors
+`ingest_fetched` exactly, including its DOI/arXiv-id/title-hash dedup and
+abstract-as-stored-text handling, reusing `_find_duplicate` and
+`_handle_duplicate` unchanged — so `ingest references` on a Zotero export
+that overlaps an already-ingested arXiv paper deduplicates identically to
+`ingest folder`/`watch`, per the backlog's requirement.
+
+A `.bib` entry's own byte-exact text becomes its `BibEntry`
+(`origin=fetched`, extending the existing invariant that fetched BibTeX is
+never rewritten except for the sanctioned key-collision suffix, ADR-12).
+RIS has no BibTeX form to preserve, so a `.ris` entry gets one *rendered*
+from its parsed fields (`origin=derived`) via `core/bibtex.py`'s
+`make_citation_key`/`render_derived_entry` — the exact fallback
+`related-work`'s bib export already uses for any source with no fetched
+BibTeX, reused here rather than duplicated.
+
+Tested so far against one constructed sample per tool for both formats
+(four fixtures total: Zotero `.bib`, Mendeley `.bib`, Zotero-style `.ris`,
+Mendeley-style `.ris`), each modelling that tool's documented quirks
+(indentation style, title bracing, tag choice) rather than a single
+idealised fixture. The backlog calls for validation against a *real*
+sample export from each tool, not a constructed one — that step is still
+open (docs/BACKLOG.md tracks E9-4 as partial pending it); this parser
+should be re-validated against an actual Zotero export and an actual
+Mendeley export before the story is closed out.
+
+Mutation score on `core/refimport.py`: 95.4% (373/391), up from 76% on the
+first pass — the initial fixture-only test suite left most of the
+character-level parsing logic (quote/brace unwrap boundaries, malformed-
+entry recovery, field-default fallbacks) unexercised. The remaining 18
+survivors are confirmed equivalent mutants, not gaps: offset shifts that
+land inside a prefix the parser already discards (the `key,` token before
+`_split_bibtex_fields` ever sees the body), a default-value swap where
+neither the original nor the mutated default ever satisfies the
+downstream check it feeds (e.g. `"XXXX".lower() != "arxiv"` same as
+`""`), and — the largest cluster — the Mendeley double-brace second-unwrap
+step, whose output is unconditionally re-scrubbed of all brace characters
+by the final LaTeX-case-protection cleanup regardless of what the second
+check decides, making its own correctness unobservable from any
+brace-only input. `core/services/ingest.py`'s two survivors
+(`attach_full_text`, `_attach_fetched_bib`) are pre-existing error-message
+literals in code this story didn't touch.

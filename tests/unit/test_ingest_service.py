@@ -10,6 +10,7 @@ from mustrum.core.models import (
     SourceKind,
     Summary,
 )
+from mustrum.core.refimport import ParsedReference
 from mustrum.core.services.ingest import DuplicateSourceError, IngestService
 
 
@@ -71,6 +72,14 @@ class TestIngestDocument:
         with pytest.raises(DuplicateSourceError) as exc:
             service.ingest_document(title="same title!", text="b", extraction_method="plaintext")
         assert exc.value.matched_on == "title"
+
+    def test_duplicate_error_message_names_the_existing_source(self, service):
+        first = service.ingest_document(title="Same Title", text="a", extraction_method="plaintext")
+        with pytest.raises(DuplicateSourceError) as exc:
+            service.ingest_document(title="same title!", text="b", extraction_method="plaintext")
+        assert str(exc.value) == (
+            f"source already in library (matched on title): [{first.source.id}] Same Title"
+        )
 
     def test_duplicate_skip_returns_existing(self, service):
         first = service.ingest_document(title="T", text="a", extraction_method="plaintext")
@@ -450,3 +459,118 @@ class TestAttachFullText:
         assert bib.raw_bibtex.startswith("@misc{vaswani2017attentiona,")
         # occurrences inside the body are untouched
         assert "note={vaswani2017attention, cited as {vaswani2017attention," in bib.raw_bibtex
+
+
+REF = ParsedReference(
+    title="Attention Is All You Need",
+    authors=("Ashish Vaswani", "Noam Shazeer"),
+    year=2017,
+    doi="10.48550/arXiv.1706.03762",
+    arxiv_id="1706.03762",
+    abstract="The dominant sequence transduction models are based on recurrence.",
+    raw_bibtex="@misc{vaswani2017attention,\n  title={Attention Is All You Need}\n}",
+)
+
+
+class TestIngestReference:
+    def test_creates_source_bib_and_abstract(self, repo, service):
+        result = service.ingest_reference(REF)
+        assert result.created is True
+        source = result.source
+        assert source.doi == REF.doi.lower()
+        assert source.arxiv_id == REF.arxiv_id
+        assert dict(source.provenance)["title"] == FieldOrigin.EXTRACTED
+        bib = repo.get_bib_entry(source.id)
+        assert bib.citation_key == "vaswani2017attention"
+        assert bib.raw_bibtex == REF.raw_bibtex  # byte-exact, .bib import
+        assert bib.origin == BibOrigin.FETCHED
+        assert repo.get_source_text(source.id).extraction_method == "abstract"
+
+    def test_provenance_covers_all_present_fields(self, service):
+        result = service.ingest_reference(REF)
+        assert dict(result.source.provenance) == {
+            "title": FieldOrigin.EXTRACTED,
+            "authors": FieldOrigin.EXTRACTED,
+            "year": FieldOrigin.EXTRACTED,
+            "doi": FieldOrigin.EXTRACTED,
+            "arxiv_id": FieldOrigin.EXTRACTED,
+        }
+
+    def test_no_raw_bibtex_renders_a_derived_entry(self, repo, service):
+        import dataclasses
+
+        # a plain document first, with no bib entry of its own, so the new
+        # source's id and the bib_entries table's own rowid sequence
+        # diverge — a wrong (e.g. null) source_id on the BibEntry would
+        # otherwise coincidentally still look up correctly by luck
+        service.ingest_document(title="Unrelated Note", text="x", extraction_method="plaintext")
+        ris_ref = dataclasses.replace(REF, raw_bibtex=None)
+        result = service.ingest_reference(ris_ref)
+        bib = repo.get_bib_entry(result.source.id)
+        assert bib is not None
+        assert bib.origin == BibOrigin.DERIVED
+        assert bib.raw_bibtex.startswith("@article{vaswani2017attention,")
+
+    def test_duplicate_by_doi_skipped_by_default(self, service):
+        service.ingest_reference(REF)
+        result = service.ingest_reference(REF)
+        assert result.created is False
+        assert result.merged is False
+
+    def test_duplicate_fail_raises(self, service):
+        service.ingest_reference(REF)
+        with pytest.raises(DuplicateSourceError) as exc:
+            service.ingest_reference(REF, on_duplicate="fail")
+        assert exc.value.matched_on == "doi"
+
+    def test_merge_enriches_manual_source_and_gains_bib(self, repo, service):
+        manual = service.ingest_document(
+            title="Attention Is All You Need", text="full pdf text", extraction_method="pymupdf"
+        )
+        result = service.ingest_reference(REF, on_duplicate="merge")
+        assert result.merged is True
+        assert result.source.id == manual.source.id
+        merged = repo.get_source(manual.source.id)
+        assert merged.doi == REF.doi.lower()
+        assert repo.get_source_text(manual.source.id).text == "full pdf text"  # kept
+        assert repo.get_bib_entry(manual.source.id).citation_key == "vaswani2017attention"
+
+    def test_no_abstract_means_no_text(self, repo, service):
+        import dataclasses
+
+        bare = dataclasses.replace(REF, abstract="", doi="10.1/bare", arxiv_id=None)
+        result = service.ingest_reference(bare)
+        assert repo.get_source_text(result.source.id) is None
+
+    def test_merge_attaches_abstract_as_abstract_when_existing_has_no_text(self, repo, service):
+        manual = service.ingest_document(
+            title="Attention Is All You Need", text="", extraction_method="plaintext"
+        )
+        service.ingest_reference(REF, on_duplicate="merge")
+        stored = repo.get_source_text(manual.source.id)
+        assert stored.text == REF.abstract
+        assert stored.extraction_method == "abstract"
+
+    def test_repeat_merge_does_not_reattach_or_rekey_existing_bib(self, repo, service):
+        first = service.ingest_reference(REF)
+        first_bib = repo.get_bib_entry(first.source.id)
+        result = service.ingest_reference(REF, on_duplicate="merge")
+        assert result.merged is True
+        assert result.source.id == first.source.id
+        bib = repo.get_bib_entry(first.source.id)
+        assert bib.citation_key == first_bib.citation_key == "vaswani2017attention"
+
+    def test_clashing_citation_key_deduplicated_with_suffix(self, repo, service):
+        import dataclasses
+
+        service.ingest_reference(REF)
+        other = dataclasses.replace(
+            REF,
+            title="A Different Paper",
+            doi="10.1/other",
+            arxiv_id=None,
+            raw_bibtex="@misc{vaswani2017attention,\n  title={A Different Paper}\n}",
+        )
+        result = service.ingest_reference(other)
+        bib = repo.get_bib_entry(result.source.id)
+        assert bib.citation_key == "vaswani2017attentiona"

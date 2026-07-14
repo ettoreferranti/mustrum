@@ -75,5 +75,7 @@ also_copy = [
     "mustrum/cli/",
     "mustrum/graph/",
     "mustrum/web/",
+    "mustrum/mcp/",
+    "mustrum/benchmark/",
 ]
 do_not_mutate = ["mustrum/core/ports.py"]  # Protocol stubs: declarations, no behaviour

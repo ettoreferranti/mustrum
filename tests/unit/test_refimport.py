@@ -280,6 +280,44 @@ class TestParseRisMalformed:
         assert result.references[0].title == "T"
 
 
+class TestParseRisWrappedContinuationLines:
+    """Regression test: a real Zotero export (zotero.ris, validated
+    2026-07-15) wraps a long abstract across many further physical lines
+    with no repeated 'AB  - ' tag at all — plain continuation text (and
+    the occasional blank-looking line consisting of a single space, used
+    as a paragraph break). The parser only ever stored the first line of
+    such an AB tag; every subsequent line was silently discarded as an
+    "unsupported continuation line", losing the rest of the field."""
+
+    def test_wrapped_abstract_lines_are_appended_not_dropped(self):
+        raw = (
+            "TY  - JOUR\nTI  - T\n"
+            "AB  - First paragraph.\n"
+            "second paragraph, wrapped onto its own line\n"
+            "ER  -\n"
+        )
+        ref = parse_ris(raw).references[0]
+        assert ref.abstract == "First paragraph. second paragraph, wrapped onto its own line"
+
+    def test_blank_paragraph_break_lines_are_skipped_not_appended(self):
+        raw = "TY  - JOUR\nTI  - T\nAB  - First.\n \nSecond.\nER  -\n"
+        ref = parse_ris(raw).references[0]
+        assert ref.abstract == "First. Second."
+
+    def test_continuation_only_appends_to_the_immediately_preceding_tag(self):
+        # AU (a list-valued tag) is the last tag before the continuation
+        # line, so the wrapped text must extend AU's own last entry, not
+        # leak into TI or a different field
+        raw = "TY  - JOUR\nTI  - T\nAU  - Doe, Jane\ncontinued author name\nER  -\n"
+        ref = parse_ris(raw).references[0]
+        assert ref.authors == ("Doe, Jane continued author name",)
+
+    def test_continuation_before_any_tag_is_ignored(self):
+        raw = "TY  - JOUR\nstray text before any content tag\nTI  - T\nER  -\n"
+        ref = parse_ris(raw).references[0]
+        assert ref.title == "T"
+
+
 class TestParseRisRecordIsolation:
     def test_second_record_does_not_inherit_first_records_authors(self):
         raw = (
@@ -432,3 +470,26 @@ class TestParseBibtexAbsentFields:
         raw = "@misc{k,\n  title = {T}\n}\n"
         ref = parse_bibtex(raw).references[0]
         assert ref.abstract == ""
+
+
+class TestParseBibtexBiblatexDate:
+    """Regression test: a real Zotero export (zotero.bib, validated
+    2026-07-15, Zotero's default "BibLaTeX" export style rather than its
+    classic "BibTeX" style) has no bare `year` field at all — only a full
+    ISO `date` field (e.g. `date = {2026-03-02}`). Every entry's year was
+    silently coming out as None until this fallback was added."""
+
+    def test_year_extracted_from_date_field_when_year_field_absent(self):
+        raw = "@misc{k,\n  title = {T},\n  date = {2026-03-02}\n}\n"
+        ref = parse_bibtex(raw).references[0]
+        assert ref.year == 2026
+
+    def test_bare_year_field_takes_priority_over_date(self):
+        raw = "@misc{k,\n  title = {T},\n  year = {1999},\n  date = {2026-03-02}\n}\n"
+        ref = parse_bibtex(raw).references[0]
+        assert ref.year == 1999
+
+    def test_no_year_and_no_date_stays_none(self):
+        raw = "@misc{k,\n  title = {T}\n}\n"
+        ref = parse_bibtex(raw).references[0]
+        assert ref.year is None

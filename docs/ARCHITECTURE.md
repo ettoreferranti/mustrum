@@ -2,7 +2,7 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-14 (E9-4: reference-manager import — `mustrum ingest
+> Last updated: 2026-07-15 (E9-4: reference-manager import — `mustrum ingest
 > references <path>` bulk-imports a `.bib` or `.ris` export from Zotero,
 > Mendeley, or any tool emitting these standard formats; new
 > `core/refimport.py` parses either into `ParsedReference` records (one
@@ -12,7 +12,11 @@
 > byte-exact text becomes its BibEntry, a `.ris` entry gets one rendered
 > from parsed fields (reusing `core/bibtex.py`'s existing derived-entry
 > fallback); a malformed entry is skipped with a warning, not an aborted
-> file; ADR-24; earlier same day E9-3: watch-folder auto-ingest — `mustrum watch
+> file; validated against real Zotero and Mendeley exports, which
+> surfaced and fixed three bugs — Mendeley's occasional empty BibTeX
+> citation key, Zotero's BibLaTeX `date`-not-`year` field, and Zotero's
+> RIS abstracts wrapped across untagged continuation lines; ADR-24;
+> previous day E9-3: watch-folder auto-ingest — `mustrum watch
 > <dir>` polls for new PDFs, ingesting one only once its size/mtime are
 > unchanged across two consecutive scans (a download/sync in progress is
 > left alone); resolved files move into `ingested/`/`failed/` inside the
@@ -281,7 +285,11 @@ here is a recall problem, not a grounding violation.
   form, so one is rendered from the parsed fields (`origin=derived`), the
   same fallback `related-work`'s bib export uses for any source with none
   fetched. A malformed entry (no title) is skipped with a warning rather
-  than aborting the whole file.
+  than aborting the whole file. Validated against real Zotero and
+  Mendeley exports of both formats (ADR-24): handles Zotero's BibLaTeX
+  `date`-instead-of-`year` field and RIS abstracts wrapped across
+  untagged continuation lines, and Mendeley's occasional empty BibTeX
+  citation key (falls back to a rendered key, same as RIS).
 - **New idea / new version:** store version → embed → match against all source
   embeddings → present ranked suggestions → user confirms/rejects. On demand
   (`match explain`), an LLM rationale grounded in verified quotes is attached

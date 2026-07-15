@@ -138,7 +138,14 @@ def parse_bibtex(raw: str) -> ParseResult:
             warnings.append(f"skipped entry {key_match.group(1)!r}: no title field")
             continue
         authors = tuple(a.strip() for a in fields.get("author", "").split(" and ") if a.strip())
-        year = int(fields["year"]) if fields.get("year", "").isdigit() else None
+        # BibLaTeX-style exports (e.g. Zotero's default "BibLaTeX" style,
+        # as opposed to its classic "BibTeX" style) carry a full `date`
+        # field instead of a bare `year` one
+        year = (
+            int(fields["year"])
+            if fields.get("year", "").isdigit()
+            else _year_from(fields.get("date", ""))
+        )
         doi = fields.get("doi") or None
         arxiv_id = None
         if fields.get("archiveprefix", "").lower() == "arxiv" and fields.get("eprint"):
@@ -176,20 +183,29 @@ def parse_ris(raw: str) -> ParseResult:
     references = []
     warnings = []
     record: dict[str, list[str]] = {}
+    last_tag: str | None = None
     for lineno, line in enumerate(raw.splitlines(), start=1):
         line = line.rstrip()
         if not line.strip():
             continue
         match = _RIS_TAG.match(line)
         if not match:
-            continue  # an unsupported continuation line; ignore, don't fail the record
+            # Zotero (and others) wrap a long value — typically an
+            # abstract — across further physical lines with no tag
+            # prefix at all; append it to whatever tag was last seen
+            # rather than silently dropping the rest of the field
+            if last_tag is not None and record.get(last_tag):
+                record[last_tag][-1] = f"{record[last_tag][-1]} {line.strip()}".strip()
+            continue
         tag, value = match.group(1).upper(), match.group(2).strip()
+        last_tag = tag
         if tag == "TY":
             record = {}
         elif tag == "ER":
             ref, warning = _ris_record_to_reference(record, lineno)
             if ref is not None:
                 references.append(ref)
+            last_tag = None
             if warning:
                 warnings.append(warning)
             record = {}

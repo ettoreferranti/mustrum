@@ -88,6 +88,42 @@ class TestIngestAndSources:
         invoke("source", "edit", "42", "--year", "2020", expect_exit=1)
 
 
+class TestIngestFileBadInput:
+    """A first-run user will inevitably feed in a broken file; these must
+    fail with a clean message and exit code, never a raw Python traceback."""
+
+    def test_corrupt_pdf_fails_cleanly(self, tmp_path):
+        bad = tmp_path / "broken.pdf"
+        bad.write_bytes(b"this is not really a PDF")
+        out = invoke("ingest", "file", str(bad), expect_exit=1)
+        assert "could not read broken.pdf" in out
+        assert "Traceback" not in out
+
+    def test_non_utf8_text_fails_cleanly(self, tmp_path):
+        bad = tmp_path / "latin1.txt"
+        bad.write_bytes(b"\xff\xfe\x00 not utf-8 bytes")
+        out = invoke("ingest", "file", str(bad), expect_exit=1)
+        assert "could not read latin1.txt" in out
+        assert "Traceback" not in out
+
+
+class TestIngestFetchOffline:
+    """Network failure on arxiv/doi fetch must not crash the CLI."""
+
+    def test_doi_network_error_fails_cleanly(self, monkeypatch):
+        import httpx
+
+        from mustrum.adapters.crossref import CrossrefFetcher
+
+        def boom(self, identifier):
+            raise httpx.ConnectError("Network is unreachable")
+
+        monkeypatch.setattr(CrossrefFetcher, "fetch", boom)
+        out = invoke("ingest", "doi", "10.1/x", "--no-pdf", expect_exit=1)
+        assert "could not reach the metadata service" in out
+        assert "Traceback" not in out
+
+
 class TestFileArchive:
     """E1-11: originals live in a visible files/ dir next to the DB."""
 

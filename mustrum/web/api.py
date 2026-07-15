@@ -10,7 +10,9 @@ import dataclasses
 import sys
 from importlib import resources
 from typing import Any
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -41,6 +43,10 @@ from mustrum.core.services.query import QueryFailure, QueryService
 from mustrum.core.services.rationale import RationaleFailure, RationaleService
 from mustrum.core.services.relatedwork import RelatedWorkService
 from mustrum.core.services.summarise import GroundingFailure, SummariseService
+
+# hostnames a same-origin GUI request can legitimately carry — the server
+# only ever binds loopback (`mustrum ui` → uvicorn host="127.0.0.1")
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class IngestIdPayload(BaseModel):
@@ -179,6 +185,28 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Mustrum", docs_url=None, redoc_url=None)
 
+    @app.middleware("http")
+    async def block_cross_origin_writes(request: Request, call_next: Any) -> Any:
+        """The GUI has no auth and binds loopback only, so any web page the
+        user has open can reach it. Most endpoints are safe because JSON
+        bodies force a CORS preflight the browser blocks, but a few
+        state-changing calls (bodyless POSTs, multipart uploads) are
+        CORS-'simple' and would otherwise fire cross-site. A browser always
+        attaches an `Origin` header to a cross-origin write, so we reject any
+        mutating request whose Origin is present and not loopback. Requests
+        with no Origin (curl, scripts, the test client) are not the
+        cross-site threat and pass through."""
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            if origin is not None and urlsplit(origin).hostname not in _LOOPBACK_HOSTS:
+                print(
+                    f"[mustrum ui] refused cross-origin {request.method} "
+                    f"{request.url.path} from {origin}",
+                    file=sys.stderr,
+                )
+                return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
+        return await call_next(request)
+
     @app.exception_handler(StarletteHTTPException)
     async def log_http_errors(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """Every failed API call leaves a durable line in the `mustrum ui`
@@ -271,7 +299,10 @@ def create_app(
         name = file.filename or "upload"
         data = await file.read()
         if name.lower().endswith(".pdf"):
-            text = extract_pdf_bytes(data)
+            try:
+                text = extract_pdf_bytes(data)
+            except Exception as exc:  # corrupt/encrypted/not-really-a-PDF upload
+                raise HTTPException(422, f"could not read PDF: {exc}") from exc
             method = "pymupdf"
         else:
             text = data.decode("utf-8", errors="replace")
@@ -427,6 +458,8 @@ def create_app(
                 meta = CrossrefFetcher().fetch(identifier)
         except (LookupError, ValueError) as exc:
             raise HTTPException(404, str(exc)) from exc
+        except httpx.HTTPError as exc:  # offline, DNS/timeout, unexpected HTTP status
+            raise HTTPException(502, f"could not reach the metadata service: {exc}") from exc
         full_text = fetch_full_text(meta, config.unpaywall_email)
         try:
             result = IngestService(repo, embedder).ingest_fetched(
@@ -457,9 +490,12 @@ def create_app(
         data = await file.read()
         title = None
         if name.lower().endswith(".pdf"):
-            text = extract_pdf_bytes(data)
+            try:
+                text = extract_pdf_bytes(data)
+                title = pdf_metadata_title_bytes(data)
+            except Exception as exc:  # corrupt/encrypted/not-really-a-PDF upload
+                raise HTTPException(422, f"could not read PDF: {exc}") from exc
             method = "pymupdf"
-            title = pdf_metadata_title_bytes(data)
         else:
             text = data.decode("utf-8", errors="replace")
             method = "plaintext"

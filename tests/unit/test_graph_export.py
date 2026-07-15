@@ -120,6 +120,30 @@ class TestRenderHtml:
         page = export_graph(repo)
         assert "</script><script>alert(1)" not in page
 
+    def test_detail_panel_escapes_untrusted_values(self, repo):
+        """The tap-handler builds the detail panel with innerHTML; every
+        node-data value it splices in originates from untrusted sources
+        (titles, summaries, imported metadata), so each must be routed
+        through the esc() helper — otherwise a crafted title runs arbitrary
+        script against the unauthenticated local API served by `mustrum ui`."""
+        page = export_graph(repo)
+        assert "function esc(value)" in page
+        # every field spliced into the panel is escaped ...
+        for escaped in (
+            "esc(d.label)",
+            "esc(d.type)",
+            "esc(d.kind)",
+            "esc(d.detail)",
+            "esc(d.authors.join",
+            "esc(d.year)",
+            "esc(d.citation_key)",
+            "esc(d.tags.join",
+        ):
+            assert escaped in page, escaped
+        # ... and no field reaches innerHTML raw (regression guard)
+        for raw in ('" + d.label + "', '" + d.detail + "', '" + d.type + "'):
+            assert raw not in page, raw
+
     def test_empty_library_still_renders(self, repo):
         page = export_graph(repo)
         assert page.startswith("<!DOCTYPE html>")

@@ -504,3 +504,74 @@ what the second check decides, making its own correctness unobservable
 from any brace-only input. `core/services/ingest.py`'s two survivors
 (`attach_full_text`, `_attach_fetched_bib`) are pre-existing error-message
 literals in code this story didn't touch.
+
+## ADR-25 — GUI security hardening: output escaping, cross-origin-write guard, friendly errors (2026-07-15, accepted)
+
+A pre-release review flagged three issues in the (otherwise clean,
+hexagonal) codebase. This ADR records the fixes. All are in the driving
+adapters (`web/`, `cli/`, `graph/`); no `core/` change, so the module is
+outside mutmut's scope — coverage is the adapter-layer test suites.
+
+**1. Stored XSS in the graph page → the unauthenticated local API.**
+`graph/export.py` renders idea/source/contact titles and summaries into the
+detail panel via `innerHTML` string concatenation. That data is untrusted —
+it originates in PDF metadata, imported `.bib`/`.ris` entries, Crossref/arXiv
+records, and LLM output — so a crafted title such as
+`<img src=x onerror=…>` executed as script when the node was clicked. Served
+under `mustrum ui`'s `/graph` route it runs same-origin with the
+unauthenticated `/api/*` endpoints, so it could read, delete, or exfiltrate
+the whole library — a realistic chain for an early user who imports a
+colleague's `.bib` and opens their graph. Fixed by escaping every
+node-data value through an `esc()` helper before it reaches `innerHTML`.
+This brings the generated graph page to parity with the SPA
+(`static/index.html`), which was audited in the same pass and already
+escapes all library data consistently through its own `esc()`; the graph,
+being generated server-side in Python on a separate code path, had been the
+sole place that missed it. The pre-existing `</`→`<\/` guard only protected
+the JSON-in-`<script>` context, not this DOM sink.
+
+**2. No cross-origin protection on the loopback API.** The GUI has no auth
+and no cookies (nothing to steal), but binds loopback with no origin
+checking, so any web page the user has open can reach it. JSON endpoints are
+incidentally protected — an `application/json` body forces a CORS preflight
+the browser blocks — but bodyless POSTs (`/api/chat/reset`,
+`/api/matches/{id}/{action}`, `…/summarise`) and `multipart/form-data`
+uploads (`/api/ingest/file`, `…/attach`, `/api/audit`) are CORS-"simple" and
+would fire cross-site, executing their side effects (the response stays
+unreadable cross-origin, but the write already happened). Fixed with a
+FastAPI middleware that refuses any state-changing method (POST/PUT/PATCH/
+DELETE) whose `Origin` header is present and whose host is not loopback
+(`127.0.0.1`/`localhost`/`::1`, any port, since the UI port is configurable).
+Chosen over a CSRF token (heavier, needs SPA plumbing, unwarranted for a
+single-user tool) and over CORS middleware (which governs reads, not the
+issue here). Rationale for the exact predicate: a browser *always* attaches
+`Origin` to a cross-origin write and cannot be made to omit it, so
+"reject when Origin is present and non-loopback" catches every browser
+cross-site write; conversely a request with no Origin is a non-browser
+client (curl, a script, the test client) that is not the cross-site threat
+and must keep working. Reads (GET/HEAD) are left unguarded — they are
+idempotent and, with no CORS headers emitted, unreadable cross-site anyway.
+Refusals are logged to stderr, consistent with the E11-5 error-logging
+pattern.
+
+**3. Raw tracebacks / opaque 500s on ordinary bad input.** `main()` caught
+only `ProviderError` and `ingest file` only `DuplicateSourceError`, so three
+things a first-run user hits routinely produced a raw Python traceback: a
+corrupt/encrypted PDF or a non-UTF-8 text file via `ingest file`, and being
+offline during `ingest doi`/`ingest arxiv` (an `httpx.ConnectError` that no
+handler caught). The batch paths (`ingest folder`/`watch`) already survived
+these via `_ingest_pdf`'s broad `except`; the single-file and fetch paths
+did not. Fixed by guarding extraction in `ingest file` (broad `except` at
+the file-read boundary — the same justified breadth `_ingest_pdf` uses,
+since format/encoding failures are inherently unpredictable) and catching
+`httpx.HTTPError` on the fetch path, both reporting a one-line message and
+exit 1. The web adapter had the same class returning opaque 500s: corrupt
+uploads to `/api/ingest/file` and `…/attach` now return 422, and an offline
+`/api/ingest/doi` returns 502.
+
+Follow-ups deliberately left out of this pass (lower severity, noted in the
+review): PDF downloads follow redirects to publisher-supplied URLs (an SSRF
+surface with negligible impact on a personal machine), and the LaTeX
+skeleton export does not escape LaTeX metacharacters in interpolated
+titles/summaries (can also break compilation for legitimate titles
+containing `&`, `%`, `_`, `#`).

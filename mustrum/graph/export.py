@@ -166,18 +166,29 @@ const cy = cytoscape({{
   layout: {{ name: 'cose', animate: false, nodeRepulsion: 40000, idealEdgeLength: 90 }}
 }});
 const panel = document.getElementById("panel");
+// Node data (titles, summaries, author/tag/contact strings) originates from
+// untrusted sources — PDF metadata, imported .bib/.ris entries, Crossref/
+// arXiv records, LLM output — so every value is HTML-escaped before it is
+// spliced into innerHTML. Without this a crafted title could run arbitrary
+// script against the (unauthenticated) local API when the graph is served
+// by `mustrum ui`.
+function esc(value) {{
+  return String(value == null ? "" : value).replace(/[&<>"']/g, function(ch) {{
+    return {{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }}[ch];
+  }});
+}}
 cy.on('tap', 'node', evt => {{
   const d = evt.target.data();
   let extra = "";
   if (d.type === "source") {{
-    extra = (d.authors && d.authors.length ? d.authors.join(", ") : "") +
-            (d.year ? " (" + d.year + ")" : "") +
-            (d.citation_key ? "<br><code>[@" + d.citation_key + "]</code>" : "");
+    extra = (d.authors && d.authors.length ? esc(d.authors.join(", ")) : "") +
+            (d.year ? " (" + esc(d.year) + ")" : "") +
+            (d.citation_key ? "<br><code>[@" + esc(d.citation_key) + "]</code>" : "");
   }}
-  panel.innerHTML = "<b>" + d.label + "</b><br><i>" + d.type +
-    (d.kind ? " — " + d.kind : "") + "</i><br>" + extra +
-    (d.tags && d.tags.length ? "<br>tags: " + d.tags.join(", ") : "") +
-    (d.detail ? "<hr>" + d.detail : "");
+  panel.innerHTML = "<b>" + esc(d.label) + "</b><br><i>" + esc(d.type) +
+    (d.kind ? " — " + esc(d.kind) : "") + "</i><br>" + extra +
+    (d.tags && d.tags.length ? "<br>tags: " + esc(d.tags.join(", ")) : "") +
+    (d.detail ? "<hr>" + esc(d.detail) : "");
   panel.style.display = "block";
 }});
 cy.on('tap', evt => {{ if (evt.target === cy) panel.style.display = "none"; }});

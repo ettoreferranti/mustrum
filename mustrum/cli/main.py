@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
+import httpx
 import typer
 
 if TYPE_CHECKING:
@@ -123,14 +124,19 @@ def ingest_file(
         _fail(f"no such file: {path}")
     ctx = _context()
     extractor = extractor_for(path)
-    if title is None and path.suffix.lower() == ".pdf":
-        from mustrum.adapters.pdf import pdf_metadata_title
+    try:
+        if title is None and path.suffix.lower() == ".pdf":
+            from mustrum.adapters.pdf import pdf_metadata_title
 
-        title = pdf_metadata_title(path)
+            title = pdf_metadata_title(path)
+        text = extractor.extract(path)
+    except Exception as exc:  # corrupt/encrypted PDF, non-UTF-8 text, unreadable file
+        _fail(f"could not read {path.name}: {exc}")
+        return
     try:
         result = IngestService(ctx.repo, ctx.embedder).ingest_document(
             title=title or path.stem,
-            text=extractor.extract(path),
+            text=text,
             extraction_method=extractor.extraction_method,
             kind=kind,
             authors=tuple(author or ()),
@@ -294,9 +300,7 @@ def _scan_once(
 @app.command("watch")
 def watch(
     directory: Path,
-    interval: Annotated[
-        int, typer.Option("--interval", help="Seconds between scans.")
-    ] = 30,
+    interval: Annotated[int, typer.Option("--interval", help="Seconds between scans.")] = 30,
     recursive: Annotated[bool, typer.Option("--recursive", "-r")] = False,
     kind: SourceKind = SourceKind.PAPER,
 ) -> None:
@@ -352,6 +356,9 @@ def _ingest_fetched(
         meta = fetcher.fetch(identifier)
     except (LookupError, ValueError) as exc:
         _fail(str(exc))
+        return
+    except httpx.HTTPError as exc:  # offline, DNS/timeout, unexpected HTTP status
+        _fail(f"could not reach the metadata service: {exc}")
         return
     full_text = _fetch_full_text(ctx, meta) if fetch_pdf else FullTextResult()
     try:
@@ -1245,9 +1252,7 @@ def benchmark(
             "(costs money, needs a key).",
         ),
     ] = "fake,ollama",
-    repeats: Annotated[
-        int, typer.Option("--repeats", help="Attempts per task per provider.")
-    ] = 1,
+    repeats: Annotated[int, typer.Option("--repeats", help="Attempts per task per provider.")] = 1,
 ) -> None:
     """Run a fixed set of summarise/rationale tasks through each named
     provider and compare grounding-verification pass rates (E10-2). Uses a

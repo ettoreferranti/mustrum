@@ -388,3 +388,119 @@ pattern as `mustrum ui`/`mustrum mcp` — no new daemon, service-manager, or
 background-process concept introduced. GUI integration (a "watch" toggle
 in the UI) is out of scope here, matching how E10-1's CLI-first scope was
 only extended to the GUI on request.
+
+## ADR-24 — Reference-manager import: one BibTeX/RIS parser, EXTRACTED provenance (2026-07-14, accepted)
+
+Resolves E9-4. `mustrum ingest references <path>` bulk-imports a Zotero or
+Mendeley library export. Both tools emit the same two standard formats
+(BibTeX `.bib`, RIS `.ris`) rather than exposing a stable API/local DB
+worth integrating against directly, so `core/refimport.py` parses each
+format once — `parse_bibtex`/`parse_ris` — and the same parser handles
+either tool's export; the format is picked from the file extension, not a
+tool fingerprint, since the two tools' output isn't reliably distinguishable
+and it doesn't need to be.
+
+BibTeX entries are split by brace-depth counting rather than a line-based
+or single-regex split, because real exports nest braces inside field
+values to protect capitalisation (Zotero: `{Deep} Learning`) or double-wrap
+the whole title (Mendeley: `{{Title}}`) — both would truncate or mis-split
+under a naive parse. RIS records are grouped between `TY`/`ER` tag lines; a
+handful of tag aliases are treated as equivalent since Zotero and Mendeley
+don't always agree on which one they emit for the same field (`TI`/`T1` for
+title, `PY`/`Y1` for year, `AB`/`N2` for abstract) — again keeping this to
+one parser instead of a per-tool variant. An arXiv id is recovered from a
+`10.48550/arXiv.*` DOI or an `arxiv.org/abs/` URL when present, since
+neither format has a dedicated arXiv-id field. A record with no title is
+skipped with a warning rather than aborting the whole file — one bad entry
+in a hundred-paper export must not cost the other ninety-nine.
+
+Parsed fields get `FieldOrigin.EXTRACTED` (`core/models.py`'s "parsed out
+of the source file" case — until now declared but unused), distinct from
+`FieldOrigin.FETCHED` used for arXiv/Crossref: an imported record was
+read out of a local file, not retrieved live from an authoritative
+service, and the distinction is visible in `source show`'s per-field
+provenance. `IngestService.ingest_reference` otherwise mirrors
+`ingest_fetched` exactly, including its DOI/arXiv-id/title-hash dedup and
+abstract-as-stored-text handling, reusing `_find_duplicate` and
+`_handle_duplicate` unchanged — so `ingest references` on a Zotero export
+that overlaps an already-ingested arXiv paper deduplicates identically to
+`ingest folder`/`watch`, per the backlog's requirement.
+
+A `.bib` entry's own byte-exact text becomes its `BibEntry`
+(`origin=fetched`, extending the existing invariant that fetched BibTeX is
+never rewritten except for the sanctioned key-collision suffix, ADR-12).
+RIS has no BibTeX form to preserve, so a `.ris` entry gets one *rendered*
+from its parsed fields (`origin=derived`) via `core/bibtex.py`'s
+`make_citation_key`/`render_derived_entry` — the exact fallback
+`related-work`'s bib export already uses for any source with no fetched
+BibTeX, reused here rather than duplicated.
+
+Initially tested only against one constructed sample per tool for both
+formats, each modelling that tool's documented quirks (indentation style,
+title bracing, tag choice) rather than a single idealised fixture. Later
+validated (2026-07-15) against real personal-library export pairs from
+**both** tools: Mendeley (`library.bib` + `library.ris`, 5 entries — a
+book, a journal article, a conference proceedings volume, and a tech
+report) and Zotero (`zotero.bib` + `zotero.ris`, 3 entries — two
+conference papers and a journal article), satisfying the backlog's
+requirement for a real sample from each tool, not only constructed ones.
+
+Real exports surfaced three genuine bugs the constructed fixtures hadn't,
+all now fixed and regression-tested with minimal synthetic fixtures (not
+the source libraries' actual titles/abstracts/paths):
+
+1. **Empty BibTeX citation key (Mendeley).** One entry was `@techReport{,`
+   — apparently Mendeley's key-generation template evaluated to nothing
+   for that record. The key pattern (`[^,\s}]+`, one-or-more) required a
+   non-empty key, so `_split_bibtex_entries`'s `@type{key,` regex never
+   matched the entry at all — it vanished from the import silently, with
+   no warning, exactly the silent data loss NFR-1 exists to prevent.
+   Fixed by relaxing the key group to zero-or-more (`[^,\s}]*`); when the
+   captured key is empty, the entry is treated as if it had no BibTeX
+   form at all (`raw_bibtex=None`, same as a RIS import) rather than
+   stored byte-exact with an unciteable blank key — `ingest_reference`
+   already renders a fresh key via `core/bibtex.py`'s `make_citation_key`
+   for exactly this case, so no new code path was needed, only routing
+   this entry into it. A warning is emitted so the omission stays visible.
+
+2. **No `year` field at all (Zotero, BibLaTeX export style).** Zotero's
+   default BibTeX export style is actually BibLaTeX-flavoured: every
+   entry carries a full `date` field (`date = {2026-03-02}`) instead of a
+   bare `year` one, so `year` came out `None` for every single entry.
+   Fixed by falling back to `_year_from(fields.get("date", ""))` (reusing
+   the existing 4-digit-run extractor already used for RIS's `PY`/`Y1`)
+   when no bare `year` field is present; an explicit `year` field, when
+   present, still takes priority.
+
+3. **Wrapped RIS continuation lines (Zotero).** Zotero's RIS export wraps
+   a long field — typically `AB`, the abstract — across further physical
+   lines with no repeated tag at all, using bare continuation text (and
+   occasional single-space "blank" lines as paragraph breaks). The parser
+   only ever kept the first line of such a field; every subsequent line
+   hit the "line doesn't match a tag" branch and was silently dropped,
+   losing most of the abstract. Fixed by tracking the most recently seen
+   tag (`last_tag`) and, when a line doesn't match `_RIS_TAG`, appending
+   it to that tag's last stored value instead of discarding it — a
+   genuinely blank line still contributes nothing (already filtered
+   earlier), and a continuation line with no tag yet seen (stray preamble
+   before the first real field) is still safely ignored.
+
+Mutation score on `core/refimport.py`: 94.9% (394/415) after all of the
+above, up from 76% on the very first pass — the initial fixture-only test
+suite left most of the character-level parsing logic (quote/brace unwrap
+boundaries, malformed-entry recovery, field-default fallbacks) unexercised.
+The 21 remaining survivors are confirmed equivalent mutants, not gaps:
+offset shifts that land inside a prefix the parser already discards (the
+`key,` token before `_split_bibtex_fields` ever sees the body), a handful
+of default-value or initial-value swaps where neither the original nor
+the mutated value ever changes the outcome of the check or fallback it
+feeds (e.g. `_year_from("XXXX")` finds no digits either way; `last_tag =
+""` vs `None` is indistinguishable because the guard's second condition,
+`record.get(last_tag)`, is already falsy on a freshly-reset record
+regardless), and — the largest cluster — the Mendeley double-brace
+second-unwrap step, whose output is unconditionally re-scrubbed of all
+brace characters by the final LaTeX-case-protection cleanup regardless of
+what the second check decides, making its own correctness unobservable
+from any brace-only input. `core/services/ingest.py`'s two survivors
+(`attach_full_text`, `_attach_fetched_bib`) are pre-existing error-message
+literals in code this story didn't touch.

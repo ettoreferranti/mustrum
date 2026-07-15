@@ -45,6 +45,7 @@ uv run mustrum ingest doi 10.1371/journal.pcbi.1003285   # + OA PDF via Unpaywal
 uv run mustrum ingest file paper.pdf --title "..." --author "..." --year 2024
 uv run mustrum ingest folder ~/papers -r   # batch-import every PDF; re-run safe
 uv run mustrum watch ~/Downloads           # keep ingesting new PDFs dropped there, until Ctrl+C
+uv run mustrum ingest references zotero-export.bib   # bulk-import a Zotero/Mendeley .bib or .ris export
 uv run mustrum summarise 1                # grounded, verified summary
 uv run mustrum summarise --all             # every source still lacking one
 
@@ -79,9 +80,12 @@ Every command, grouped by task (`mustrum <command> --help` gives full options).
 | `mustrum ingest file <path>` | One PDF or text/Markdown file (`--title`, `--author`, `--year`, `--kind`) |
 | `mustrum ingest folder <dir>` | Every PDF in a folder (`-r` recursive); re-run safe |
 | `mustrum watch <dir> [--interval N] [-r]` | Continuously ingest new PDFs dropped into a folder (E9-3) — runs until Ctrl+C; a file is ingested once its size/mtime are unchanged across two scans (so a download/sync in progress is left alone), then moved into `ingested/` (or `failed/` if it doesn't extract) so re-scans stay bounded |
+| `mustrum ingest references <path>` | Bulk-import a BibTeX (`.bib`) or RIS (`.ris`) reference-manager export — Zotero, Mendeley, or any tool that emits these standard formats (E9-4); a malformed entry is skipped with a warning rather than aborting the whole file |
 
 All accept `--on-duplicate fail|skip|merge`; `merge` enriches an existing
-record instead of duplicating. `--no-pdf` skips full-text download.
+record instead of duplicating (`ingest references` defaults to `skip`, like
+`ingest folder`, so re-running the same export is safe). `--no-pdf` skips
+full-text download.
 
 Every ingested or fetched original (PDF/text) is also archived in a visible
 `files/` directory next to the database, so the library and its originals

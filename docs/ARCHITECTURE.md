@@ -2,7 +2,21 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-14 (E9-3: watch-folder auto-ingest — `mustrum watch
+> Last updated: 2026-07-15 (E9-4: reference-manager import — `mustrum ingest
+> references <path>` bulk-imports a `.bib` or `.ris` export from Zotero,
+> Mendeley, or any tool emitting these standard formats; new
+> `core/refimport.py` parses either into `ParsedReference` records (one
+> parser per format covers both tools); `IngestService.ingest_reference`
+> feeds them through the same DOI/arXiv/title-hash dedup as every other
+> ingest path with `FieldOrigin.EXTRACTED` provenance; a `.bib` entry's
+> byte-exact text becomes its BibEntry, a `.ris` entry gets one rendered
+> from parsed fields (reusing `core/bibtex.py`'s existing derived-entry
+> fallback); a malformed entry is skipped with a warning, not an aborted
+> file; validated against real Zotero and Mendeley exports, which
+> surfaced and fixed three bugs — Mendeley's occasional empty BibTeX
+> citation key, Zotero's BibLaTeX `date`-not-`year` field, and Zotero's
+> RIS abstracts wrapped across untagged continuation lines; ADR-24;
+> previous day E9-3: watch-folder auto-ingest — `mustrum watch
 > <dir>` polls for new PDFs, ingesting one only once its size/mtime are
 > unchanged across two consecutive scans (a download/sync in progress is
 > left alone); resolved files move into `ingested/`/`failed/` inside the
@@ -94,6 +108,10 @@ mustrum/
   core/
     models.py        # Source, Idea, IdeaVersion, Contact, Match, BibEntry, ...
     normalize.py     # title/DOI normalisation + title_hash (dedup keys)
+    bibtex.py        # citation-key derivation + BibTeX rendering for
+                     #   sources with no fetched BibTeX (used by
+                     #   related-work export and RIS import alike)
+    refimport.py     # BibTeX/RIS parsing into ParsedReference (E9-4)
     ports.py         # Protocol definitions (all ports)
     verify.py        # GroundingVerifier, CitationVerifier  ← rigour kernel
     services/        # ingest, summarise, match, rationale, relatedwork,
@@ -124,7 +142,8 @@ mustrum/
                      #   summarise, bib, related-work, audit, graph, search,
                      #   chat (E13-2 REPL), mcp (E13-3 stdio server), ui,
                      #   watch (E9-3, ADR-23: continuous folder auto-ingest),
-                     #   benchmark (E10-2)
+                     #   benchmark (E10-2), ingest references (E9-4, ADR-24:
+                     #   bulk BibTeX/RIS reference-manager import)
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
                      #   single-page frontend (static/index.html); a second
                      #   driving adapter beside the CLI — no logic of its own
@@ -254,6 +273,23 @@ here is a recall problem, not a grounding violation.
   replaces one. Deleting a source removes its archived file with the cascade.
 - **Ingest arXiv/DOI:** fetch metadata + BibTeX → same pipeline; fetched
   fields marked authoritative; a downloaded PDF is archived the same way.
+- **Ingest reference-manager export (E9-4, `mustrum ingest references`):**
+  `core/refimport.py` parses a `.bib` or `.ris` file (Zotero, Mendeley, or
+  any tool emitting these standard formats — one parser per format covers
+  both, no tool-specific integration) into `ParsedReference` records, each
+  fed through `IngestService.ingest_reference` — same dedup (DOI/arXiv/
+  title-hash) and abstract-as-text handling as every other ingest path, but
+  fields marked `FieldOrigin.EXTRACTED` (parsed out of the imported file,
+  not fetched from an authoritative service). A `.bib` entry's byte-exact
+  text becomes its `BibEntry` (`origin=fetched`); RIS carries no BibTeX
+  form, so one is rendered from the parsed fields (`origin=derived`), the
+  same fallback `related-work`'s bib export uses for any source with none
+  fetched. A malformed entry (no title) is skipped with a warning rather
+  than aborting the whole file. Validated against real Zotero and
+  Mendeley exports of both formats (ADR-24): handles Zotero's BibLaTeX
+  `date`-instead-of-`year` field and RIS abstracts wrapped across
+  untagged continuation lines, and Mendeley's occasional empty BibTeX
+  citation key (falls back to a rendered key, same as RIS).
 - **New idea / new version:** store version → embed → match against all source
   embeddings → present ranked suggestions → user confirms/rejects. On demand
   (`match explain`), an LLM rationale grounded in verified quotes is attached

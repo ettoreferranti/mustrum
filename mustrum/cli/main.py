@@ -34,6 +34,7 @@ from mustrum.core.models import (
     SourceKind,
 )
 from mustrum.core.ports import EmbeddingProvider, LLMProvider, MetadataFetcher
+from mustrum.core.refimport import parse_bibtex, parse_ris
 from mustrum.core.services.audit import AuditService
 from mustrum.core.services.ideas import IdeaFileError, IdeaService
 from mustrum.core.services.ingest import DuplicateSourceError, IngestService
@@ -402,6 +403,53 @@ def ingest_doi(
     from mustrum.adapters.crossref import CrossrefFetcher
 
     _ingest_fetched(doi, CrossrefFetcher(), on_duplicate, fetch_pdf=pdf)
+
+
+@ingest_app.command("references")
+def ingest_references(
+    path: Path,
+    kind: SourceKind = SourceKind.PAPER,
+    on_duplicate: DupOption = "skip",
+) -> None:
+    """Bulk-import a BibTeX (.bib) or RIS (.ris) reference-manager export —
+    Zotero, Mendeley, or any tool that emits these standard formats (E9-4).
+    Already-known papers are skipped by default, so re-running the same
+    export is safe."""
+    if not path.is_file():
+        _fail(f"no such file: {path}")
+    suffix = path.suffix.lower()
+    if suffix == ".bib":
+        parsed = parse_bibtex(path.read_text())
+    elif suffix == ".ris":
+        parsed = parse_ris(path.read_text())
+    else:
+        _fail(f"unsupported extension {suffix!r}: expected .bib or .ris")
+        return
+    for warning in parsed.warnings:
+        typer.secho(warning, fg=typer.colors.YELLOW, err=True)
+    if not parsed.references:
+        typer.echo("no references found")
+        return
+    ctx = _context()
+    service = IngestService(ctx.repo, ctx.embedder)
+    imported = skipped = failed = 0
+    for ref in parsed.references:
+        try:
+            result = service.ingest_reference(ref, kind, on_duplicate)  # type: ignore[arg-type]
+        except DuplicateSourceError as exc:
+            typer.secho(f"duplicate: {ref.title} ({exc.matched_on})", fg=typer.colors.YELLOW)
+            failed += 1
+            continue
+        if not result.created:
+            typer.echo(f"skipped (already known): {ref.title}")
+            skipped += 1
+            continue
+        typer.echo("imported ", nl=False)
+        _print_source(result.source)
+        imported += 1
+    typer.echo(f"done: {imported} imported, {skipped} skipped, {failed} failed")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 # -- sources ---------------------------------------------------------------------

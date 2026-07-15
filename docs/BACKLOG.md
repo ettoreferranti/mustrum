@@ -93,7 +93,7 @@ stories at the bottom of the relevant epic.
 | E9-1 | Plain-file export/import (JSON + Markdown + .bib) for git-versionable backup: `export` / `restore` | S | done |
 | E9-2 | Idea brainstorming mode (explicitly-invoked creative output, clearly labelled, never mixed with citation output): `brainstorm` | S | done |
 | E9-3 | Watch-folder auto-ingest for PDFs: `mustrum watch <dir>` polls, ingests once a file's size/mtime settle, moves resolved files into `ingested/`/`failed/` so re-scans stay bounded (ADR-23) ([PR #19](https://github.com/ettoreferranti/mustrum/pull/19)) | C | done |
-| E9-4 | Reference-manager import: BibTeX (`.bib`) and RIS (`.ris`) import from a Zotero or Mendeley library export — both tools emit these standard formats, so one parser covers both rather than a tool-specific API/DB integration; dedup reuses the existing title-hash/DOI matching (same as `ingest folder`/`watch`); validated against a real sample export from each tool, not just one | C | todo |
+| E9-4 | Reference-manager import: BibTeX (`.bib`) and RIS (`.ris`) import from a Zotero or Mendeley library export — both tools emit these standard formats, so one parser covers both rather than a tool-specific API/DB integration; dedup reuses the existing title-hash/DOI matching (same as `ingest folder`/`watch`) (ADR-24) ([PR #20](https://github.com/ettoreferranti/mustrum/pull/20)) | C | done |
 | E9-5 | Contact import (vCard/CSV) — OQ-2 | C | todo |
 
 ## E12 Configuration

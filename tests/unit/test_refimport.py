@@ -112,6 +112,34 @@ class TestParseBibtexMalformed:
         assert len(result.warnings) == 1
 
 
+class TestParseBibtexEmptyCitationKey:
+    """Regression test: a real Mendeley export (library.bib, validated
+    2026-07-15) contained an entry with an empty citation key —
+    '@techReport{,' — whose key-generation template evidently produced
+    nothing. The original `[^,\\s}]+` key pattern required at least one
+    character, so `_split_bibtex_entries` never matched this entry at all
+    and it vanished from the import with no warning."""
+
+    RAW = "@techReport{,\n  author = {Jane Doe},\n  title = {A Report With No Citation Key}\n}\n"
+
+    def test_entry_is_not_silently_dropped(self):
+        result = parse_bibtex(self.RAW)
+        assert len(result.references) == 1
+        assert result.references[0].title == "A Report With No Citation Key"
+
+    def test_warns_that_a_key_will_be_generated(self):
+        result = parse_bibtex(self.RAW)
+        assert "no citation key" in result.warnings[0]
+        assert "A Report With No Citation Key" in result.warnings[0]
+
+    def test_raw_bibtex_is_none_so_ingest_renders_a_derived_entry(self):
+        # a keyless entry has nothing citable in its own text, so it must
+        # take the same derived-bib path as a RIS import rather than being
+        # stored byte-exact with a blank key
+        ref = parse_bibtex(self.RAW).references[0]
+        assert ref.raw_bibtex is None
+
+
 # -- RIS ------------------------------------------------------------------------
 
 ZOTERO_RIS = """\

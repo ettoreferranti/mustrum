@@ -59,7 +59,7 @@ def _year_from(text: str) -> int | None:
 
 # -- BibTeX -------------------------------------------------------------------
 
-_ENTRY_START = re.compile(r"@\s*[A-Za-z]+\s*\{\s*([^,\s}]+)\s*,")
+_ENTRY_START = re.compile(r"@\s*[A-Za-z]+\s*\{\s*([^,\s}]*)\s*,")
 
 
 def _split_bibtex_entries(raw: str) -> list[str]:
@@ -144,6 +144,15 @@ def parse_bibtex(raw: str) -> ParseResult:
         if fields.get("archiveprefix", "").lower() == "arxiv" and fields.get("eprint"):
             arxiv_id = fields["eprint"]
         arxiv_id = arxiv_id or _find_arxiv_id(doi, fields.get("url"), fields.get("journal"))
+        key = key_match.group(1)
+        if not key:
+            # Mendeley sometimes exports an entry with no citation key at
+            # all (its key template evaluated to nothing); the byte-exact
+            # text has nothing citable, so fall back to a key rendered
+            # from the parsed fields at ingest time, same as a RIS import
+            warnings.append(
+                f"entry with title {title!r} has no citation key; one will be generated"
+            )
         references.append(
             ParsedReference(
                 title=title,
@@ -152,7 +161,7 @@ def parse_bibtex(raw: str) -> ParseResult:
                 doi=doi,
                 arxiv_id=arxiv_id,
                 abstract=fields.get("abstract", ""),
-                raw_bibtex=entry,
+                raw_bibtex=entry if key else None,
             )
         )
     return ParseResult(tuple(references), tuple(warnings))

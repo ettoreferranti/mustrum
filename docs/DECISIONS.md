@@ -435,29 +435,47 @@ from its parsed fields (`origin=derived`) via `core/bibtex.py`'s
 `related-work`'s bib export already uses for any source with no fetched
 BibTeX, reused here rather than duplicated.
 
-Tested so far against one constructed sample per tool for both formats
-(four fixtures total: Zotero `.bib`, Mendeley `.bib`, Zotero-style `.ris`,
-Mendeley-style `.ris`), each modelling that tool's documented quirks
-(indentation style, title bracing, tag choice) rather than a single
-idealised fixture. The backlog calls for validation against a *real*
-sample export from each tool, not a constructed one — that step is still
-open (docs/BACKLOG.md tracks E9-4 as partial pending it); this parser
-should be re-validated against an actual Zotero export and an actual
-Mendeley export before the story is closed out.
+Initially tested only against one constructed sample per tool for both
+formats, each modelling that tool's documented quirks (indentation style,
+title bracing, tag choice) rather than a single idealised fixture. Later
+validated (2026-07-15) against a real personal-library export pair from
+Mendeley (`library.bib` + `library.ris`, 5 entries spanning a book, a
+journal article, a conference proceedings volume, and a tech report) — the
+backlog's requirement for at least one real export, not only constructed
+ones. A real Zotero export is still outstanding; re-validate against one
+before treating the Zotero side of this story as equally proven.
 
-Mutation score on `core/refimport.py`: 95.4% (373/391), up from 76% on the
-first pass — the initial fixture-only test suite left most of the
-character-level parsing logic (quote/brace unwrap boundaries, malformed-
-entry recovery, field-default fallbacks) unexercised. The remaining 18
-survivors are confirmed equivalent mutants, not gaps: offset shifts that
-land inside a prefix the parser already discards (the `key,` token before
-`_split_bibtex_fields` ever sees the body), a default-value swap where
-neither the original nor the mutated default ever satisfies the
-downstream check it feeds (e.g. `"XXXX".lower() != "arxiv"` same as
-`""`), and — the largest cluster — the Mendeley double-brace second-unwrap
-step, whose output is unconditionally re-scrubbed of all brace characters
-by the final LaTeX-case-protection cleanup regardless of what the second
-check decides, making its own correctness unobservable from any
-brace-only input. `core/services/ingest.py`'s two survivors
-(`attach_full_text`, `_attach_fetched_bib`) are pre-existing error-message
-literals in code this story didn't touch.
+The real Mendeley `.bib` export surfaced a genuine bug the constructed
+fixtures hadn't: one entry was `@techReport{,` — an **empty citation key**,
+apparently because Mendeley's key-generation template evaluated to nothing
+for that record. The original key pattern (`[^,\s}]+`, one-or-more)
+required a non-empty key, so `_split_bibtex_entries`'s `@type{key,` regex
+never matched this entry at all — it vanished from the import silently,
+with no warning, exactly the kind of silent data loss NFR-1 exists to
+prevent. Fixed by relaxing the key group to zero-or-more (`[^,\s}]*`) and,
+when the captured key is empty, treating the entry as if it had no
+BibTeX form at all (`raw_bibtex=None`, same as a RIS import) rather than
+storing an unciteable blank-key entry byte-exact — `ingest_reference`
+already renders a fresh key via `core/bibtex.py`'s `make_citation_key` for
+exactly this case, so no new code path was needed, only routing this
+entry into it. A warning is emitted so the omission is visible instead of
+silent. Regression-tested with a minimal synthetic fixture reproducing
+the empty-key structure (not the source library's real content).
+
+Mutation score on `core/refimport.py`: 95.5% (378/396) after the fixes
+above, up from 76% on the first pass — the initial fixture-only test
+suite left most of the character-level parsing logic (quote/brace unwrap
+boundaries, malformed-entry recovery, field-default fallbacks) unexercised.
+The remaining 18 survivors are confirmed equivalent mutants, not gaps:
+offset shifts that land inside a prefix the parser already discards (the
+`key,` token before `_split_bibtex_fields` ever sees the body), a
+default-value swap where neither the original nor the mutated default
+ever satisfies the downstream check it feeds (e.g. `"XXXX".lower() !=
+"arxiv"` same as `""`), and — the largest cluster — the Mendeley
+double-brace second-unwrap step, whose output is unconditionally
+re-scrubbed of all brace characters by the final LaTeX-case-protection
+cleanup regardless of what the second check decides, making its own
+correctness unobservable from any brace-only input.
+`core/services/ingest.py`'s two survivors (`attach_full_text`,
+`_attach_fetched_bib`) are pre-existing error-message literals in code
+this story didn't touch.

@@ -218,12 +218,34 @@ client finish before switching machines. Both config files stay on your
 machine — nothing personal is ever part of this repository, enforced by
 `tests/unit/test_privacy.py`.
 
+## Security & privacy
+
+Mustrum is local-first and single-user, and the security model follows from
+that (full detail in [docs/ARCHITECTURE.md §9](docs/ARCHITECTURE.md)):
+
+- **Nothing leaves your machine unless you ask.** The default stack is fully
+  local (Ollama); there is no telemetry. Outbound calls are opt-in: metadata
+  and open-access PDF lookup for `ingest arxiv`/`ingest doi` (arXiv, Crossref,
+  doi.org, and Unpaywall only if you set `unpaywall_email`), and the Anthropic
+  API *only* if you switch `llm_provider` to `anthropic` — at which point your
+  prompts (source text and ideas) are sent to Anthropic. The API key is read
+  from the environment, never stored.
+- **The web GUI binds `127.0.0.1` only**, serves a fully self-contained page
+  (no CDNs), and has no login by design (it is your machine, your library).
+  Because an unauthenticated local server is reachable from any page your
+  browser has open, it refuses state-changing requests coming from another
+  site, and all library text is HTML-escaped before display.
+- **Untrusted input is handled defensively.** Imported metadata, PDFs, and
+  fetched records can't inject script or SQL, and a corrupt PDF, a non-UTF-8
+  file, or being offline produces a clean error, not a crash.
+
 ## Status
 
-Phases 0–2 complete (MVP, GUI, configuration, chat & MCP), plus the
-Anthropic provider, benchmarking harness, and watch-folder auto-ingest
-(E10-1/E10-2/E9-3) — see [docs/BACKLOG.md](docs/BACKLOG.md) for the full,
-current story-by-story status. Remaining: Zotero and contact import. See:
+Phases 0–2 complete (MVP, GUI, configuration, chat & MCP), plus the Anthropic
+provider, benchmarking harness, watch-folder auto-ingest, and BibTeX/RIS
+reference-manager import (E10-1/E10-2/E9-3/E9-4), and a pre-release security
+hardening pass (ADR-25) — see [docs/BACKLOG.md](docs/BACKLOG.md) for the full,
+current story-by-story status. Remaining: contact import. See:
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — what it must do
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it is built

@@ -259,6 +259,103 @@ class TestFileArchive:
         assert list((tmp_path / "files").iterdir()) == []
 
 
+class TestUploadBadInput:
+    """A broken upload must degrade to a clean 4xx, never an opaque 500."""
+
+    def test_corrupt_pdf_upload_returns_422(self, client):
+        response = client.post(
+            "/api/ingest/file",
+            files={"file": ("broken.pdf", b"not really a PDF", "application/pdf")},
+        )
+        assert response.status_code == 422
+        assert "could not read PDF" in response.json()["detail"]
+
+    def test_corrupt_pdf_attach_returns_422(self, client):
+        source_id = ingest_note(client)
+        response = client.post(
+            f"/api/sources/{source_id}/attach",
+            files={"file": ("broken.pdf", b"not really a PDF", "application/pdf")},
+        )
+        assert response.status_code == 422
+        assert "could not read PDF" in response.json()["detail"]
+
+
+class TestFetchOffline:
+    """Network failure on arxiv/doi fetch returns a 502, not a 500."""
+
+    def test_doi_network_error_returns_502(self, client, monkeypatch):
+        import httpx
+
+        from mustrum.adapters.crossref import CrossrefFetcher
+
+        def boom(self, identifier):
+            raise httpx.ConnectError("Network is unreachable")
+
+        monkeypatch.setattr(CrossrefFetcher, "fetch", boom)
+        response = client.post("/api/ingest/doi", json={"identifier": "10.1/x"})
+        assert response.status_code == 502
+        assert "could not reach the metadata service" in response.json()["detail"]
+
+
+class TestCrossOriginProtection:
+    """The unauthenticated loopback API must reject browser writes coming
+    from another site (any web page the user has open can otherwise reach
+    it via CORS-'simple' requests). Reads and non-browser clients are
+    unaffected."""
+
+    def test_cross_origin_json_post_refused(self, client):
+        r = client.post(
+            "/api/ideas",
+            json={"title": "t", "text": "b"},
+            headers={"origin": "https://evil.example"},
+        )
+        assert r.status_code == 403
+        assert r.json()["detail"] == "cross-origin request refused"
+
+    def test_cross_origin_bodyless_post_refused(self, client):
+        # bodyless POST is CORS-simple (no preflight) — the real bypass
+        assert (
+            client.post("/api/chat/reset", headers={"origin": "https://evil.example"}).status_code
+            == 403
+        )
+
+    def test_cross_origin_multipart_upload_refused(self, client):
+        # multipart/form-data is CORS-simple too
+        r = client.post(
+            "/api/ingest/file",
+            files={"file": ("x.md", b"data", "text/markdown")},
+            headers={"origin": "https://evil.example"},
+        )
+        assert r.status_code == 403
+
+    def test_same_origin_write_allowed(self, client):
+        assert (
+            client.post(
+                "/api/ideas",
+                json={"title": "t", "text": "b"},
+                headers={"origin": "http://127.0.0.1:8765"},
+            ).status_code
+            == 200
+        )
+
+    def test_loopback_any_port_allowed(self, client):
+        # the UI port is configurable, so any loopback origin is legitimate
+        assert (
+            client.post("/api/chat/reset", headers={"origin": "http://localhost:12345"}).status_code
+            == 200
+        )
+
+    def test_no_origin_header_allowed(self, client):
+        # curl / scripts / the test client are not the cross-site threat
+        assert client.post("/api/chat/reset").status_code == 200
+
+    def test_cross_origin_get_not_blocked(self, client):
+        # reads are safe and, with no CORS headers, unreadable cross-site anyway
+        assert (
+            client.get("/api/status", headers={"origin": "https://evil.example"}).status_code == 200
+        )
+
+
 class TestAttach:
     """E11-3: GUI 'Add PDF' — attach a manually-downloaded original."""
 

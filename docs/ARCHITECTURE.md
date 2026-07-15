@@ -2,7 +2,13 @@
 
 > **Living document.** Keep this in sync with the code on every structural
 > change (new module, new adapter, schema migration, changed data flow).
-> Last updated: 2026-07-15 (E9-4: reference-manager import — `mustrum ingest
+> Last updated: 2026-07-15 (security hardening, ADR-25 — see §9: GUI output
+> now HTML-escaped before `innerHTML` (graph page reached parity with the
+> SPA, closing a stored-XSS-into-the-local-API hole); a cross-origin-write
+> guard rejects browser writes from other sites to the unauthenticated
+> loopback API; corrupt PDFs / non-UTF-8 files / offline fetches now fail
+> cleanly instead of with a raw traceback (CLI) or opaque 500 (GUI). Earlier
+> same day E9-4: reference-manager import — `mustrum ingest
 > references <path>` bulk-imports a `.bib` or `.ris` export from Zotero,
 > Mendeley, or any tool emitting these standard formats; new
 > `core/refimport.py` parses either into `ParsedReference` records (one
@@ -146,7 +152,9 @@ mustrum/
                      #   bulk BibTeX/RIS reference-manager import)
   web/               # GUI adapter: FastAPI JSON API (api.py) + self-contained
                      #   single-page frontend (static/index.html); a second
-                     #   driving adapter beside the CLI — no logic of its own
+                     #   driving adapter beside the CLI — no logic of its own.
+                     #   Loopback-only, no auth (single-user), with a
+                     #   cross-origin-write guard (ADR-25) — see §9
   mcp/               # MCP server adapter (E13-3, ADR-19): read-only
                      #   search_library/get_source/get_idea/list_citations
                      #   for external MCP clients; no LLM call, no core
@@ -481,4 +489,45 @@ first-character quote case fold, ADR-16 library settings file next to the DB,
 ADR-17 multi-source grounding with a trusted `found` flag, ADR-18 chat
 history as interpretive context, never evidence, ADR-19 MCP exposes raw
 library data, not a grounded-answer tool, ADR-20 MCP resources are an
-eager per-item startup snapshot, not a dynamic listing.
+eager per-item startup snapshot, not a dynamic listing, ADR-21
+config-switchable AnthropicProvider, ADR-22 provider benchmarking harness,
+ADR-23 watch-folder auto-ingest, ADR-24 combined BibTeX/RIS reference-manager
+import, ADR-25 GUI security hardening (output escaping, cross-origin-write
+guard, friendly errors on bad input).
+
+## 9. Security & privacy posture
+
+Mustrum is local-first and single-user; the security model follows from that,
+and the hardening below is recorded in ADR-25.
+
+- **Nothing leaves the machine unless you ask.** The default stack is fully
+  local (Ollama). The only outbound calls are opt-in: metadata/PDF fetch for
+  `ingest arxiv`/`ingest doi` (arXiv, Crossref, doi.org, and — only when you
+  set `unpaywall_email` — Unpaywall, which receives that address per their
+  fair-use policy), and the Anthropic API *only* if you switch
+  `llm_provider` to `anthropic` (then prompts, i.e. source text and ideas, go
+  to Anthropic). No telemetry. The API key is never persisted — it is read
+  from `ANTHROPIC_API_KEY` at run time (ADR-4, privacy rule 9).
+- **The GUI binds loopback only** (`uvicorn host="127.0.0.1"`), disables the
+  interactive API docs, and serves a fully self-contained page (no CDNs).
+- **No auth, by design** — it is a single-user local app. Because any web
+  page the user has open could otherwise reach the unauthenticated API, a
+  middleware refuses any state-changing request (POST/PUT/PATCH/DELETE) whose
+  `Origin` header is present and not loopback (ADR-25); requests with no
+  Origin — curl, scripts, the test client — are not the cross-site threat and
+  pass through.
+- **Untrusted data is treated as untrusted.** Source/idea/contact fields come
+  from PDF metadata, imported `.bib`/`.ris`, Crossref/arXiv, and LLM output,
+  so every value rendered into HTML is escaped before it reaches `innerHTML`
+  — in the SPA and in the generated graph page alike (ADR-25). FTS5 queries
+  are token-quoted (no query-syntax injection); all SQL is parameterised.
+  Archived-file lookups reject any stored path that escapes the `files/`
+  directory (defence against a tampered DB value).
+- **Robustness as a safety property.** Bad input a first-run user will
+  realistically hit — a corrupt/encrypted PDF, a non-UTF-8 text file, or being
+  offline during a fetch — fails with a clean message (CLI) or a 4xx/502
+  (GUI), never a raw traceback or opaque 500 (ADR-25).
+- **Known lower-severity items** left as follow-ups: PDF downloads follow
+  redirects to publisher-supplied URLs (SSRF surface, negligible on a
+  personal machine); the LaTeX skeleton export does not escape LaTeX
+  metacharacters in titles/summaries.

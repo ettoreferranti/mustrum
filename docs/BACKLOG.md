@@ -136,4 +136,4 @@ stories at the bottom of the relevant epic.
 
 | ID | Story | Prio | Status |
 |---|---|---|---|
-| E14-1 | Setup scripts (`scripts/setup.sh` macOS/Linux, `scripts/setup.ps1` Windows): install uv, Python 3.12 (via `uv python install`), and Ollama (+ pull `qwen3:30b`/`nomic-embed-text`) if missing, then `uv sync` — every step skip-if-present so it's safe to re-run; requested after explaining the manual prerequisite list was the only onboarding path | S | done |
+| E14-1 | Setup scripts (`scripts/setup.sh` macOS/Linux, `scripts/setup.ps1` Windows): install uv, Python 3.12 (via `uv python install`), and Ollama (+ pull `qwen3:30b`/`nomic-embed-text`) if missing, then `uv sync` — every step skip-if-present so it's safe to re-run; requested after explaining the manual prerequisite list was the only onboarding path ([PR #22](https://github.com/ettoreferranti/mustrum/pull/22)) | S | done |

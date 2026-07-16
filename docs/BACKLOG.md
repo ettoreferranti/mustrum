@@ -131,3 +131,9 @@ stories at the bottom of the relevant epic.
 | E13-2 | `mustrum chat` — conversational grounded Q&A (CLI REPL + GUI Chat tab, `core/services/chat.py::ChatSession`): purely in-memory multi-turn session; every turn re-grounds via an unchanged `QueryService.ask()` call, now extended with additive `history`/`extra_candidate_ids` params — prior turns shape the prompt (reference resolution) and retrieval seeding (last turn's cited sources) only, never evidence (ADR-18) ([PR #13](https://github.com/ettoreferranti/mustrum/pull/13)) | M | done |
 | E13-3 | MCP server adapter (`mustrum mcp`, stdio, `mustrum/mcp/server.py`): read-only tools `search_library`/`get_source`/`get_idea`/`list_citations` — raw structured reads only, deliberately not a grounded-QA tool (ADR-19, user-confirmed); zero core changes, no LLM call anywhere in this story ([PR #14](https://github.com/ettoreferranti/mustrum/pull/14)) | S | done |
 | E13-4 | MCP resource exposure: every source/idea listed as an individually-readable `mustrum://sources\|ideas/{id}` resource (`mustrum/mcp/server.py`), not only reachable via `get_source`/`get_idea` tool calls — ids are a startup snapshot, content still read live (ADR-20) ([PR #15](https://github.com/ettoreferranti/mustrum/pull/15)) | C | done |
+
+## E14 Onboarding
+
+| ID | Story | Prio | Status |
+|---|---|---|---|
+| E14-1 | Setup scripts (`scripts/setup.sh` macOS/Linux, `scripts/setup.ps1` Windows): install uv, Python 3.12 (via `uv python install`), and Ollama (+ pull `qwen3:30b`/`nomic-embed-text`) if missing, then `uv sync` — every step skip-if-present so it's safe to re-run; requested after explaining the manual prerequisite list was the only onboarding path | S | done |

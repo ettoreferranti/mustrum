@@ -169,6 +169,8 @@ mustrum/
 tests/
   unit/  integration/
 docs/
+scripts/           # setup.sh (macOS/Linux) + setup.ps1 (Windows), E14-1:
+                   #   install uv/Python/Ollama if missing, then `uv sync`
 ```
 
 Implementation notes (v1 schema, `adapters/sqlite/`):

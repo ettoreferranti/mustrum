@@ -16,7 +16,24 @@ it is saved or emitted.
 
 ## Quickstart
 
-The fastest way in is the local web GUI — one command, opens in your browser:
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and
+[Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled
+(embeddings always use Ollama). Generation can instead run on Anthropic's API
+(`mustrum config set --llm-provider anthropic`, `ANTHROPIC_API_KEY` in your
+environment) — see [Configuration](#configuration--syncing-icloud--onedrive).
+
+Don't have those yet? A setup script installs whatever's missing (safe to
+re-run) and then runs `uv sync`:
+
+```sh
+./scripts/setup.sh              # macOS / Linux
+```
+```powershell
+.\scripts\setup.ps1              # Windows (PowerShell)
+```
+
+Then the fastest way in is the local web GUI — one command, opens in your
+browser:
 
 ```sh
 uv run mustrum ui
@@ -28,12 +45,6 @@ graph, brainstorming, tag editing, contact links, and citation-audit upload —
 all served from localhost, fully self-contained (no CDNs, nothing leaves
 your machine). The GUI is a thin adapter over the same services as the CLI:
 everything it does has a CLI equivalent below.
-
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and
-[Ollama](https://ollama.com) with `qwen3:30b` and `nomic-embed-text` pulled
-(embeddings always use Ollama). Generation can instead run on Anthropic's API
-(`mustrum config set --llm-provider anthropic`, `ANTHROPIC_API_KEY` in your
-environment) — see [Configuration](#configuration--syncing-icloud--onedrive).
 
 ```sh
 uv sync                                   # install
